@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head>
+    <meta charset="UTF-8">
+    <title>내 레시피</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 960px; margin: 24px auto; padding: 0 16px; }
+        nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+        h1 { font-size: 1.5rem; }
+        .btn { padding: 8px 14px; background: #2563eb; color: white; border: none; border-radius: 6px; text-decoration: none; cursor: pointer; display: inline-block; }
+        .btn-secondary { background: #6b7280; }
+        table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+        th, td { border-bottom: 1px solid #e5e7eb; padding: 10px 8px; text-align: left; font-size: 0.92rem; }
+        th { background: #f9fafb; }
+        a { color: #2563eb; }
+    </style>
+</head>
+<body>
+<nav>
+    <h1>내 레시피</h1>
+    <div>
+        <a th:href="@{/}">홈</a> |
+        <span sec:authentication="name"></span>
+        <form th:action="@{/logout}" method="post" style="display:inline">
+            <button type="submit" class="btn btn-secondary">로그아웃</button>
+        </form>
+    </div>
+</nav>
+
+<div style="margin-bottom:12px">
+    <a th:href="@{/recipes/new}" class="btn">+ 새 레시피</a>
+</div>
+
+<table>
+    <thead>
+    <tr>
+        <th>레시피명</th>
+        <th>인분</th>
+        <th>재료 수</th>
+        <th>수정일</th>
+    </tr>
+    </thead>
+    <tbody>
+    <tr th:if="${#lists.isEmpty(recipes)}">
+        <td colspan="4" style="text-align:center; padding:20px; color:#6b7280">
+            아직 레시피가 없습니다. "새 레시피"를 눌러 추가하세요.
+        </td>
+    </tr>
+    <tr th:each="r : ${recipes}">
+        <td>
+            <a th:href="@{/recipes/{id}(id=${r.id})}" th:text="${r.name}"></a>
+        </td>
+        <td th:text="${r.servings} + ' 인분'"></td>
+        <td th:text="${#lists.size(r.ingredients)} + ' 개'"></td>
+        <td th:text="${#temporals.format(r.updatedAt, 'yyyy-MM-dd HH:mm')}"></td>
+    </tr>
+    </tbody>
+</table>
+</body>
+</html>

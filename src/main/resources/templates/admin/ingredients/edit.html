@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>카테고리 수정</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 600px; margin: 40px auto; padding: 0 20px; }
+        h1 { font-size: 1.5rem; }
+        .meta { background: #f9fafb; padding: 12px; border-radius: 6px; font-size: 0.9rem; margin-bottom: 16px; }
+        .meta dt { font-weight: 600; color: #374151; margin-top: 8px; }
+        .meta dd { margin: 4px 0 0 0; }
+        form { display: flex; flex-direction: column; gap: 12px; margin-top: 16px; }
+        label { font-size: 0.9rem; }
+        input { padding: 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 1rem; }
+        button { padding: 12px; background: #2563eb; color: white; border: none; border-radius: 6px; font-size: 1rem; cursor: pointer; }
+        .field-error { color: #991b1b; font-size: 0.85rem; }
+        a { color: #2563eb; }
+    </style>
+</head>
+<body>
+<h1>카테고리 수정</h1>
+<p><a th:href="@{/admin/ingredients}">← 목록으로</a></p>
+
+<dl class="meta">
+    <dt>제품명</dt>
+    <dd th:text="${ingredient.title}"></dd>
+    <dt>가격 / 용량</dt>
+    <dd th:text="${#numbers.formatInteger(ingredient.price, 3, 'COMMA')} + ' 원 / ' + ${ingredient.totalAmount} + ' ' + ${ingredient.unit}"></dd>
+    <dt>1단위당 가격</dt>
+    <dd th:text="${ingredient.pricePerGram} + ' 원/' + (${ingredient.unit.name()} == 'G' ? 'g' : 'ml')"></dd>
+    <dt>몰</dt>
+    <dd th:text="${ingredient.mallName}"></dd>
+    <dt>마지막 fetch</dt>
+    <dd th:text="${#temporals.format(ingredient.fetchedAt, 'yyyy-MM-dd HH:mm')}"></dd>
+</dl>
+
+<form th:action="@{/admin/ingredients/{id}(id=${ingredient.id})}" th:object="${categoryUpdateForm}" method="post">
+    <label>
+        카테고리 (비워두면 미지정)
+        <input type="text" th:field="*{category}" placeholder="예: 밀가루" autofocus>
+    </label>
+    <div class="field-error" th:if="${#fields.hasErrors('category')}" th:errors="*{category}"></div>
+    <button type="submit">저장</button>
+</form>
+</body>
+</html>

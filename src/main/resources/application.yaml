@@ -1,0 +1,32 @@
+spring:
+  application:
+    name: coastCalculator
+  datasource:
+    url: jdbc:mysql://localhost:3309/coast_calculator?serverTimezone=Asia/Seoul&characterEncoding=UTF-8
+    username: ${DB_USERNAME:coast}
+    password: ${DB_PASSWORD:coastpass}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        format_sql: true
+    show-sql: true
+    open-in-view: false
+  thymeleaf:
+    cache: false
+
+logging:
+  level:
+    org.hibernate.SQL: debug
+    org.hibernate.orm.jdbc.bind: trace
+
+naver:
+  api:
+    base-url: https://openapi.naver.com/v1/search/shop.json
+    client-id: ${NAVER_CLIENT_ID:}
+    client-secret: ${NAVER_CLIENT_SECRET:}
+    ttl-hours: 24
+    display: 100
+    mock-enabled: true

@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head>
+    <meta charset="UTF-8">
+    <title th:text="${mode == 'new'} ? '새 레시피' : '레시피 수정'"></title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 960px; margin: 24px auto; padding: 0 16px; }
+        nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+        h1 { font-size: 1.5rem; }
+        .btn { padding: 8px 14px; background: #2563eb; color: white; border: none; border-radius: 6px; text-decoration: none; cursor: pointer; display: inline-block; }
+        .btn-secondary { background: #6b7280; }
+        .btn-danger { background: #dc2626; }
+        .row { display: flex; gap: 12px; margin-bottom: 12px; }
+        .row label { display: flex; flex-direction: column; flex: 1; font-size: 0.9rem; }
+        input, select { padding: 9px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 1rem; }
+        table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+        th, td { border-bottom: 1px solid #e5e7eb; padding: 6px 6px; text-align: left; }
+        th { background: #f9fafb; font-size: 0.85rem; }
+        .alert { padding: 10px; border-radius: 6px; margin: 12px 0; font-size: 0.9rem; }
+        .alert-error { background: #fef2f2; color: #991b1b; }
+        .field-error { color: #991b1b; font-size: 0.85rem; }
+        .actions { margin-top: 20px; display: flex; gap: 8px; }
+        a { color: #2563eb; }
+    </style>
+</head>
+<body>
+<nav>
+    <h1 th:text="${mode == 'new'} ? '새 레시피' : '레시피 수정'"></h1>
+    <div>
+        <a th:href="@{/recipes}">← 내 레시피</a> |
+        <a th:href="@{/}">홈</a> |
+        <span sec:authentication="name"></span>
+    </div>
+</nav>
+
+<div th:if="${errorMessage}" class="alert alert-error" th:text="${errorMessage}"></div>
+
+<form th:action="${mode == 'new'} ? @{/recipes} : @{/recipes/{id}(id=${recipe.id})}"
+      th:object="${recipeForm}" method="post">
+
+    <div class="row">
+        <label style="flex:3">
+            레시피명
+            <input type="text" th:field="*{name}" required autofocus>
+            <span class="field-error" th:if="${#fields.hasErrors('name')}" th:errors="*{name}"></span>
+        </label>
+        <label style="flex:1">
+            인분
+            <input type="number" th:field="*{servings}" min="1" max="1000" required>
+            <span class="field-error" th:if="${#fields.hasErrors('servings')}" th:errors="*{servings}"></span>
+        </label>
+    </div>
+
+    <h3 style="margin-top:24px; font-size:1.1rem">재료 (빈 행은 무시됩니다)</h3>
+    <table>
+        <thead>
+        <tr>
+            <th style="width:5%">#</th>
+            <th style="width:45%">재료 카테고리</th>
+            <th style="width:25%">양</th>
+            <th style="width:25%">단위</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr th:each="ing, iter : *{ingredients}">
+            <td th:text="${iter.index + 1}"></td>
+            <td>
+                <input type="text" th:field="*{ingredients[__${iter.index}__].categoryName}" placeholder="예: 밀가루">
+            </td>
+            <td>
+                <input type="number" step="0.0001" min="0" th:field="*{ingredients[__${iter.index}__].amount}" placeholder="500">
+            </td>
+            <td>
+                <select th:field="*{ingredients[__${iter.index}__].unit}">
+                    <option value="G">g</option>
+                    <option value="ML">ml</option>
+                </select>
+            </td>
+        </tr>
+        </tbody>
+    </table>
+
+    <div class="actions">
+        <button type="submit" class="btn" th:text="${mode == 'new'} ? '레시피 생성' : '저장'"></button>
+        <a th:if="${mode == 'edit'}" th:href="@{/recipes/{id}(id=${recipe.id})}" class="btn btn-secondary">취소</a>
+    </div>
+</form>
+
+<form th:if="${mode == 'edit'}" th:action="@{/recipes/{id}/delete(id=${recipe.id})}" method="post"
+      style="margin-top:24px"
+      onsubmit="return confirm('정말 삭제하시겠습니까?')">
+    <button type="submit" class="btn btn-danger">레시피 삭제</button>
+</form>
+</body>
+</html>

@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head>
+    <meta charset="UTF-8">
+    <title>레시피 원가 계산기</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 720px; margin: 40px auto; padding: 0 20px; }
+        nav { display: flex; gap: 12px; justify-content: flex-end; margin-bottom: 32px; }
+        a { color: #2563eb; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        h1 { font-size: 1.8rem; }
+        .hero { padding: 24px; background: #f3f4f6; border-radius: 8px; margin-top: 16px; }
+    </style>
+</head>
+<body>
+<nav>
+    <span sec:authorize="!isAuthenticated()">
+        <a th:href="@{/login}">로그인</a>
+        <a th:href="@{/signup}">회원가입</a>
+    </span>
+    <span sec:authorize="isAuthenticated()">
+        <span sec:authentication="name">user</span>님 환영합니다
+        <a th:href="@{/ingredients}">재료 조회</a>
+        <a sec:authorize="hasRole('ADMIN')" th:href="@{/admin/ingredients}">재료 관리</a>
+        <a th:href="@{/recipes}">내 레시피</a>
+        <form th:action="@{/logout}" method="post" style="display:inline">
+            <button type="submit">로그아웃</button>
+        </form>
+    </span>
+</nav>
+
+<h1>레시피 원가 계산기</h1>
+<div class="hero">
+    <p>네이버 쇼핑 가격을 기반으로 레시피의 재료 원가를 계산해 드립니다.</p>
+    <p>업소용 대용량 제품의 1g당 가격을 정규화해 공정한 비교가 가능합니다.</p>
+</div>
+</body>
+</html>
