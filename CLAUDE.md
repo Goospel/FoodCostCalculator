@@ -5,6 +5,8 @@
 **핵심 인사이트**: 원가 계산은 보통 업소용 대용량(예: 밀가루 20kg) 기준이므로, 제품 가격이 아니라 **1g(또는 1ml)당 가격**으로 정규화해서 저장 → 어떤 단위 제품이든 공정 비교 가능.
 
 > 작업 진행 상태 / Task별 상세 / Open Questions / Verification 체크리스트는 [docs/plan.md](docs/plan.md) 참조.
+>
+> **개발 중 만난 함정과 해결 과정**(Spring Boot 4 모듈 분리, Naver API 권한, LazyInit 등): [docs/troubleshooting.md](docs/troubleshooting.md) — **새 라이브러리 추가/낯선 에러 만나면 여기 먼저 확인**.
 
 ---
 

@@ -156,9 +156,9 @@
 
 ### Tier 1
 
-- [ ] T1-1. Flyway/Liquibase 도입 — 해결일: -
-  - 해결 PR/커밋: -
-  - 비고: -
+- [x] T1-1. Flyway/Liquibase 도입 — 해결일: 2026-05-21
+  - 해결 PR/커밋: feat: T1-1 — Flyway 도입 (V1 baseline + ddl-auto: validate)
+  - 비고: `spring-boot-starter-flyway` + `flyway-mysql` 의존성. Spring Boot 4부터는 starter 필수(autoconfigure 모듈 분리됨, `flyway-core` 단독 X). 현재 운영 스키마를 `mysqldump --no-data`로 추출 → `V1__init_schema.sql`로 동결. `baseline-on-migrate: true` + `baseline-version: 1`로 기존 DB는 V1을 baseline으로만 마크(실행 X), 새 환경에서는 V1부터 실행. `ddl-auto: update` → `validate`로 전환(Hibernate가 엔티티 ↔ DB 일치만 검증). 로컬 검증 완료(`flyway_schema_history` 테이블 생성, V1 BASELINE 기록, 부팅 7.75s 정상).
 - [x] T1-2. Admin 시드 시 환경변수/랜덤 비번 — 해결일: 2026-05-21
   - 해결 PR/커밋: feat: Stage A-1 — admin 비번 환경변수화 + 랜덤 fallback
   - 비고: `DataInitializer`에서 코드 하드코딩 제거. `app.admin.initial-password` (환경변수 `INITIAL_ADMIN_PASSWORD`)로 주입. 미설정 시 SecureRandom으로 16자 강한 랜덤 비번 생성 → WARN 로그로 1회 출력. 로컬 개발은 `application-local.yaml`에 고정 비번(`admin123!!`) 유지. 운영 EC2 배포 시 env로 전달.
