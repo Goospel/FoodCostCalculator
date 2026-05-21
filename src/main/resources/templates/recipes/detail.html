@@ -19,6 +19,16 @@
         .actions { margin-top: 24px; display: flex; gap: 8px; }
         a { color: #2563eb; }
         .empty { color: #9ca3af; font-style: italic; }
+        .cost-section { margin-top: 32px; padding: 16px 20px; background: #f9fafb; border-radius: 8px; }
+        .cost-section h3 { margin-top: 0; }
+        .cost-controls { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
+        .cost-controls select { padding: 6px 10px; border-radius: 6px; border: 1px solid #d1d5db; }
+        .missing { color: #b45309; }
+        .price-cell { text-align: right; font-variant-numeric: tabular-nums; }
+        .summary { display: flex; gap: 24px; margin-top: 16px; padding: 12px 16px; background: white; border-radius: 6px; border: 1px solid #e5e7eb; }
+        .summary .label { color: #6b7280; font-size: 0.85rem; }
+        .summary .value { font-size: 1.3rem; font-weight: 600; }
+        .warning { background: #fef3c7; color: #92400e; padding: 8px 12px; border-radius: 6px; font-size: 0.9rem; margin-top: 12px; }
     </style>
 </head>
 <body>
@@ -76,7 +86,74 @@
     </tbody>
 </table>
 
-<!-- 원가 계산 결과 영역 (Task 5에서 구현 예정) -->
+<section class="cost-section">
+    <h3>예상 원가</h3>
+
+    <form class="cost-controls" method="get" th:action="@{/recipes/{id}(id=${recipe.id})}">
+        <label for="policy">단가 정책:</label>
+        <select id="policy" name="policy" onchange="this.form.submit()">
+            <option th:each="p : ${policies}"
+                    th:value="${p.name()}"
+                    th:text="${p.label()}"
+                    th:selected="${p == policy}"></option>
+        </select>
+        <noscript><button type="submit" class="btn">적용</button></noscript>
+        <span style="color:#6b7280; font-size:0.85rem; margin-left:8px">
+            동일 카테고리의 등록된 제품 중 선택된 정책에 따라 단가 결정
+        </span>
+    </form>
+
+    <table th:if="${not #lists.isEmpty(cost.lines)}">
+        <thead>
+        <tr>
+            <th style="width:5%">#</th>
+            <th style="width:30%">카테고리</th>
+            <th style="width:15%">양</th>
+            <th style="width:10%">단위</th>
+            <th style="width:15%" class="price-cell">단가 (원/단위)</th>
+            <th style="width:10%" class="price-cell">후보 수</th>
+            <th style="width:15%" class="price-cell">소계 (원)</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr th:each="line, iter : ${cost.lines}" th:classappend="${line.missing} ? 'missing' : ''">
+            <td th:text="${iter.index + 1}"></td>
+            <td th:text="${line.categoryName}"></td>
+            <td th:text="${line.amount}"></td>
+            <td th:text="${line.unit}"></td>
+            <td class="price-cell">
+                <span th:if="${!line.missing}" th:text="${line.pricePerUnit}"></span>
+                <span th:if="${line.missing}">—</span>
+            </td>
+            <td class="price-cell">
+                <span th:if="${!line.missing}" th:text="${line.matchedCandidateCount}"></span>
+                <span th:if="${line.missing}" class="missing">없음</span>
+            </td>
+            <td class="price-cell">
+                <span th:if="${!line.missing}"
+                      th:text="${#numbers.formatInteger(line.subtotal, 3, 'COMMA')} + ' 원'"></span>
+                <span th:if="${line.missing}" class="missing">—</span>
+            </td>
+        </tr>
+        </tbody>
+    </table>
+
+    <div class="warning" th:if="${cost.hasMissing()}">
+        ⚠️ <strong th:text="${cost.missingCount}"></strong>개의 재료가 매칭되지 않았습니다.
+        해당 카테고리/단위로 등록된 제품이 없거나 관리자가 카테고리를 부여하지 않은 상태입니다.
+    </div>
+
+    <div class="summary">
+        <div>
+            <div class="label">전체 원가</div>
+            <div class="value" th:text="${#numbers.formatInteger(cost.totalCost, 3, 'COMMA')} + ' 원'"></div>
+        </div>
+        <div>
+            <div class="label">인분당 단가 (<span th:text="${recipe.servings}"></span>인분 기준)</div>
+            <div class="value" th:text="${#numbers.formatInteger(cost.costPerServing, 3, 'COMMA')} + ' 원'"></div>
+        </div>
+    </div>
+</section>
 
 <div class="actions"
      th:if="${#authentication != null and #authentication.authenticated and recipe.user.username == #authentication.name}">

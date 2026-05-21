@@ -2,6 +2,9 @@ package com.goosepl.coastCalculator.web;
 
 import com.goosepl.coastCalculator.domain.recipe.Recipe;
 import com.goosepl.coastCalculator.domain.recipe.RecipeService;
+import com.goosepl.coastCalculator.domain.recipe.cost.PricingPolicy;
+import com.goosepl.coastCalculator.domain.recipe.cost.RecipeCostCalculator;
+import com.goosepl.coastCalculator.domain.recipe.cost.RecipeCostResult;
 import com.goosepl.coastCalculator.domain.recipe.dto.RecipeForm;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -13,6 +16,7 @@ import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 
 import java.security.Principal;
 
@@ -24,6 +28,7 @@ public class RecipeController {
     private static final int FORM_ROWS = 10;
 
     private final RecipeService recipeService;
+    private final RecipeCostCalculator recipeCostCalculator;
 
     @GetMapping
     public String list(Principal principal, Model model) {
@@ -60,9 +65,16 @@ public class RecipeController {
     }
 
     @GetMapping("/{id}")
-    public String detail(@PathVariable Long id, Model model) {
+    public String detail(@PathVariable Long id,
+                         @RequestParam(value = "policy", required = false) PricingPolicy policy,
+                         Model model) {
         Recipe recipe = recipeService.findForView(id);
+        PricingPolicy effectivePolicy = (policy != null) ? policy : PricingPolicy.LOWEST;
+        RecipeCostResult cost = recipeCostCalculator.calculate(recipe, effectivePolicy);
         model.addAttribute("recipe", recipe);
+        model.addAttribute("cost", cost);
+        model.addAttribute("policy", effectivePolicy);
+        model.addAttribute("policies", PricingPolicy.values());
         return "recipes/detail";
     }
 

@@ -11,6 +11,8 @@ public interface IngredientRepository extends JpaRepository<Ingredient, Long> {
 
     List<Ingredient> findByCategory(String category);
 
+    List<Ingredient> findByCategoryAndUnit(String category, Unit unit);
+
     List<Ingredient> findByCategoryIsNotNullOrderByCategoryAscPricePerGramAsc();
 
     List<Ingredient> findAllByOrderByCategoryAscPricePerGramAsc();
