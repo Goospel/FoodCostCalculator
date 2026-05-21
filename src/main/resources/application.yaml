@@ -16,6 +16,11 @@ spring:
     open-in-view: false
   thymeleaf:
     cache: false
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 5MB
+      max-request-size: 10MB
 
 server:
   error:
@@ -38,3 +43,6 @@ naver:
     ttl-hours: 24
     display: 100
     mock-enabled: true
+
+storage:
+  upload-dir: ${UPLOAD_DIR:./uploads}

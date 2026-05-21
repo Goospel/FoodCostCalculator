@@ -17,6 +17,8 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         // 정적 / 인증 공개
                         .requestMatchers("/", "/login", "/signup", "/css/**", "/js/**", "/error", "/favicon.ico").permitAll()
+                        // 업로드된 이미지: 익명 포함 모두 조회 가능
+                        .requestMatchers("/uploads/**").permitAll()
                         // 관리자 전용
                         .requestMatchers("/admin/**").hasRole("ADMIN")
                         // 레시피: 작성/내 레시피/편집은 인증 필요 (구체적 패턴이 먼저 매칭됨)

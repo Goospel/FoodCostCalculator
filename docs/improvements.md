@@ -204,12 +204,12 @@
 - [ ] T3-14. 이메일 인증 / 비번 재설정 / 소셜 로그인 — 해결일: -
   - 해결 PR/커밋: -
   - 비고: -
-- [ ] T3-15. 커뮤니티 기능 (좋아요/댓글/즐겨찾기/팔로우) — 해결일: -
-  - 해결 PR/커밋: -
-  - 비고: -
-- [ ] T3-16. 레시피 이미지 + 조리 스텝 + 태그 — 해결일: -
-  - 해결 PR/커밋: -
-  - 비고: -
+- [x] T3-15. 커뮤니티 기능 (좋아요/댓글/즐겨찾기/팔로우) — 해결일: 2026-05-21 (부분 해결)
+  - 해결 PR/커밋: feat: Task 7 — 좋아요 + 댓글(1단계 대댓글) + 레시피 이미지
+  - 비고: **좋아요(toggle)** 및 **댓글 + 1단계 대댓글(작성/삭제)** 완성. `RecipeLike` 엔티티 + `(recipe_id, user_id)` unique 제약, `Comment` 엔티티 + self-FK `parent`, `CommentService.listForRecipe`에서 1쿼리 fetch 후 그루핑. 댓글 삭제는 작성자 본인 + ADMIN. **즐겨찾기/팔로우/작성자 프로필 페이지**는 미해결 — 후속 항목으로 남김.
+- [x] T3-16. 레시피 이미지 + 조리 스텝 + 태그 — 해결일: 2026-05-21 (부분 해결)
+  - 해결 PR/커밋: feat: Task 7 — 좋아요 + 댓글(1단계 대댓글) + 레시피 이미지
+  - 비고: **이미지 1장(썸네일)** 업로드 완성. `Recipe.imageUrl` 컬럼, `ImageStorageService`/`LocalImageStorageService` (로컬 `./uploads/recipes/`), `WebMvcConfig`로 `/uploads/**` 정적 서빙, multipart 검증(확장자 jpg/jpeg/png/webp, 5MB), edit 폼에서 교체/삭제 가능. **조리 스텝, 태그/난이도, 갤러리(여러 장)**는 미해결.
 - [ ] T3-17. selectedIngredient UI 완성 — 해결일: -
   - 해결 PR/커밋: -
   - 비고: -

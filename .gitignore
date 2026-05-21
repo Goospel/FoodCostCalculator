@@ -41,3 +41,7 @@ src/main/resources/application-local.yaml
 src/main/resources/application-local.yml
 application-local.yaml
 application-local.yml
+
+### Uploaded images (사용자 업로드 파일은 커밋 제외) ###
+uploads/
+/uploads/

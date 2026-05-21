@@ -19,8 +19,10 @@
         .section-head { display: flex; justify-content: space-between; align-items: center; margin-top: 32px; margin-bottom: 12px; }
         .section-head h2 { font-size: 1.2rem; margin: 0; }
         .recipe-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
-        .card { border: 1px solid #e5e7eb; border-radius: 8px; padding: 14px 16px; background: white; transition: box-shadow 0.15s; }
+        .card { border: 1px solid #e5e7eb; border-radius: 8px; padding: 14px 16px; background: white; transition: box-shadow 0.15s; overflow: hidden; }
         .card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+        .card .thumb { display: block; width: calc(100% + 32px); margin: -14px -16px 12px; height: 160px; object-fit: cover; background: #f3f4f6; }
+        .card .thumb-placeholder { display: flex; align-items: center; justify-content: center; width: calc(100% + 32px); margin: -14px -16px 12px; height: 160px; background: linear-gradient(135deg, #f3f4f6, #e5e7eb); color: #9ca3af; font-size: 2rem; }
         .card h3 { margin: 0 0 8px 0; font-size: 1.05rem; }
         .card h3 a { color: #111827; text-decoration: none; }
         .card h3 a:hover { color: #2563eb; }
@@ -78,6 +80,12 @@
 
 <div class="recipe-grid" th:unless="${#lists.isEmpty(recipes)}">
     <div class="card" th:each="r : ${recipes}">
+        <a th:href="@{/recipes/{id}(id=${r.id})}" style="text-decoration:none;">
+            <img th:if="${r.imageUrl != null and !#strings.isEmpty(r.imageUrl)}"
+                 class="thumb" th:src="${r.imageUrl}" th:alt="${r.name}"/>
+            <div th:unless="${r.imageUrl != null and !#strings.isEmpty(r.imageUrl)}"
+                 class="thumb-placeholder">🍳</div>
+        </a>
         <h3><a th:href="@{/recipes/{id}(id=${r.id})}" th:text="${r.name}"></a></h3>
         <div class="meta">
             <span class="author" th:text="'@' + ${r.user.username}"></span> ·

@@ -37,7 +37,7 @@
 <div th:if="${errorMessage}" class="alert alert-error" th:text="${errorMessage}"></div>
 
 <form th:action="${mode == 'new'} ? @{/recipes} : @{/recipes/{id}(id=${recipe.id})}"
-      th:object="${recipeForm}" method="post">
+      th:object="${recipeForm}" method="post" enctype="multipart/form-data">
 
     <div class="row">
         <label style="flex:3">
@@ -49,6 +49,24 @@
             인분
             <input type="number" th:field="*{servings}" min="1" max="1000" required>
             <span class="field-error" th:if="${#fields.hasErrors('servings')}" th:errors="*{servings}"></span>
+        </label>
+    </div>
+
+    <h3 style="margin-top:24px; font-size:1.1rem">레시피 이미지 (선택)</h3>
+    <div style="margin: 8px 0;">
+        <input type="file" name="image" accept="image/jpeg,image/png,image/webp"/>
+        <small style="color:#6b7280; display:block; margin-top:4px;">
+            jpg / jpeg / png / webp, 최대 5MB
+        </small>
+    </div>
+    <div th:if="${mode == 'edit' and recipe != null and recipe.imageUrl != null and !#strings.isEmpty(recipe.imageUrl)}"
+         style="margin: 12px 0;">
+        <p style="margin: 4px 0; color:#6b7280; font-size: 0.9rem;">현재 이미지:</p>
+        <img th:src="${recipe.imageUrl}" alt="현재 이미지"
+             style="max-width: 240px; max-height: 200px; border-radius: 6px; border: 1px solid #e5e7eb;"/>
+        <label style="display:block; margin-top:8px; font-size: 0.9rem;">
+            <input type="checkbox" name="removeImage" value="true"/>
+            기존 이미지 삭제
         </label>
     </div>
 

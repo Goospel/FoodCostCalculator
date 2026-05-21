@@ -1,5 +1,7 @@
 package com.goosepl.coastCalculator.web;
 
+import com.goosepl.coastCalculator.domain.comment.CommentService;
+import com.goosepl.coastCalculator.domain.like.RecipeLikeService;
 import com.goosepl.coastCalculator.domain.recipe.Recipe;
 import com.goosepl.coastCalculator.domain.recipe.RecipeService;
 import com.goosepl.coastCalculator.domain.recipe.cost.PricingPolicy;
@@ -17,6 +19,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.security.Principal;
 
@@ -29,6 +32,8 @@ public class RecipeController {
 
     private final RecipeService recipeService;
     private final RecipeCostCalculator recipeCostCalculator;
+    private final RecipeLikeService recipeLikeService;
+    private final CommentService commentService;
 
     @GetMapping
     public String list(Principal principal, Model model) {
@@ -48,6 +53,7 @@ public class RecipeController {
     @PostMapping
     public String create(@Valid @ModelAttribute RecipeForm recipeForm,
                          BindingResult bindingResult,
+                         @RequestParam(value = "image", required = false) MultipartFile image,
                          Principal principal,
                          Model model) {
         if (bindingResult.hasErrors()) {
@@ -55,7 +61,7 @@ public class RecipeController {
             return "recipes/form";
         }
         try {
-            Long id = recipeService.create(recipeForm, principal.getName());
+            Long id = recipeService.create(recipeForm, principal.getName(), image);
             return "redirect:/recipes/" + id;
         } catch (IllegalArgumentException e) {
             model.addAttribute("errorMessage", e.getMessage());
@@ -67,14 +73,24 @@ public class RecipeController {
     @GetMapping("/{id}")
     public String detail(@PathVariable Long id,
                          @RequestParam(value = "policy", required = false) PricingPolicy policy,
+                         Principal principal,
                          Model model) {
         Recipe recipe = recipeService.findForView(id);
         PricingPolicy effectivePolicy = (policy != null) ? policy : PricingPolicy.LOWEST;
         RecipeCostResult cost = recipeCostCalculator.calculate(recipe, effectivePolicy);
+
+        String username = (principal != null) ? principal.getName() : null;
+        long likeCount = recipeLikeService.count(id);
+        boolean userLiked = recipeLikeService.isLikedBy(id, username);
+
         model.addAttribute("recipe", recipe);
         model.addAttribute("cost", cost);
         model.addAttribute("policy", effectivePolicy);
         model.addAttribute("policies", PricingPolicy.values());
+        model.addAttribute("likeCount", likeCount);
+        model.addAttribute("userLiked", userLiked);
+        model.addAttribute("rootComments", commentService.listForRecipe(id));
+        model.addAttribute("commentCount", commentService.countForRecipe(id));
         return "recipes/detail";
     }
 
@@ -93,6 +109,8 @@ public class RecipeController {
     public String update(@PathVariable Long id,
                          @Valid @ModelAttribute RecipeForm recipeForm,
                          BindingResult bindingResult,
+                         @RequestParam(value = "image", required = false) MultipartFile image,
+                         @RequestParam(value = "removeImage", defaultValue = "false") boolean removeImage,
                          Principal principal,
                          Model model) {
         if (bindingResult.hasErrors()) {
@@ -101,7 +119,7 @@ public class RecipeController {
             return "recipes/form";
         }
         try {
-            recipeService.update(id, recipeForm, principal.getName());
+            recipeService.update(id, recipeForm, principal.getName(), image, removeImage);
             return "redirect:/recipes/" + id;
         } catch (IllegalArgumentException e) {
             model.addAttribute("recipe", recipeService.findMine(id, principal.getName()));

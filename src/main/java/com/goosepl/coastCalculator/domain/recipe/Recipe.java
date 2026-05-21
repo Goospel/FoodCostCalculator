@@ -1,5 +1,7 @@
 package com.goosepl.coastCalculator.domain.recipe;
 
+import com.goosepl.coastCalculator.domain.comment.Comment;
+import com.goosepl.coastCalculator.domain.like.RecipeLike;
 import com.goosepl.coastCalculator.domain.user.User;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
@@ -44,9 +46,18 @@ public class Recipe {
     @Column(nullable = false)
     private int servings;
 
+    @Column(length = 255)
+    private String imageUrl;
+
     @OneToMany(mappedBy = "recipe", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("ordering ASC")
     private List<RecipeIngredient> ingredients = new ArrayList<>();
+
+    @OneToMany(mappedBy = "recipe", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<RecipeLike> likes = new ArrayList<>();
+
+    @OneToMany(mappedBy = "recipe", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<Comment> comments = new ArrayList<>();
 
     @CreationTimestamp
     @Column(updatable = false)
@@ -56,15 +67,24 @@ public class Recipe {
     private LocalDateTime updatedAt;
 
     @Builder
-    private Recipe(User user, String name, int servings) {
+    private Recipe(User user, String name, int servings, String imageUrl) {
         this.user = user;
         this.name = name;
         this.servings = servings;
+        this.imageUrl = imageUrl;
     }
 
     public void update(String name, int servings) {
         this.name = name;
         this.servings = servings;
+    }
+
+    public void setImage(String imageUrl) {
+        this.imageUrl = imageUrl;
+    }
+
+    public void clearImage() {
+        this.imageUrl = null;
     }
 
     public void addIngredient(RecipeIngredient ingredient) {

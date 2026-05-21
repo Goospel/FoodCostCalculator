@@ -4,11 +4,13 @@ import com.goosepl.coastCalculator.domain.recipe.dto.RecipeForm;
 import com.goosepl.coastCalculator.domain.recipe.dto.RecipeIngredientForm;
 import com.goosepl.coastCalculator.domain.user.User;
 import com.goosepl.coastCalculator.domain.user.UserRepository;
+import com.goosepl.coastCalculator.storage.ImageStorageService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
@@ -18,6 +20,7 @@ public class RecipeService {
 
     private final RecipeRepository recipeRepository;
     private final UserRepository userRepository;
+    private final ImageStorageService imageStorageService;
 
     @Transactional(readOnly = true)
     public List<Recipe> findMyRecipes(String username) {
@@ -58,21 +61,35 @@ public class RecipeService {
     }
 
     @Transactional
-    public Long create(RecipeForm form, String username) {
+    public Long create(RecipeForm form, String username, MultipartFile image) {
         User user = loadUser(username);
+        String imageUrl = (image != null && !image.isEmpty()) ? imageStorageService.save(image) : null;
         Recipe recipe = Recipe.builder()
                 .user(user)
                 .name(form.getName().trim())
                 .servings(form.getServings())
+                .imageUrl(imageUrl)
                 .build();
         applyIngredients(recipe, form);
         return recipeRepository.save(recipe).getId();
     }
 
     @Transactional
-    public void update(Long id, RecipeForm form, String username) {
+    public void update(Long id, RecipeForm form, String username, MultipartFile image, boolean removeImage) {
         Recipe recipe = findMine(id, username);
         recipe.update(form.getName().trim(), form.getServings());
+
+        if (removeImage) {
+            imageStorageService.delete(recipe.getImageUrl());
+            recipe.clearImage();
+        } else if (image != null && !image.isEmpty()) {
+            // 새 이미지 업로드 — 기존 파일은 디스크에서 정리
+            String oldUrl = recipe.getImageUrl();
+            String newUrl = imageStorageService.save(image);
+            recipe.setImage(newUrl);
+            imageStorageService.delete(oldUrl);
+        }
+
         recipe.clearIngredients();
         applyIngredients(recipe, form);
     }
@@ -80,7 +97,10 @@ public class RecipeService {
     @Transactional
     public void delete(Long id, String username) {
         Recipe recipe = findMine(id, username);
+        String imageUrl = recipe.getImageUrl();
         recipeRepository.delete(recipe);
+        // 트랜잭션 커밋과 무관하게 파일 시스템도 정리 (best-effort)
+        imageStorageService.delete(imageUrl);
     }
 
     private void applyIngredients(Recipe recipe, RecipeForm form) {
