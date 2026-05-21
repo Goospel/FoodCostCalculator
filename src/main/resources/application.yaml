@@ -17,6 +17,14 @@ spring:
   thymeleaf:
     cache: false
 
+server:
+  error:
+    include-message: never            # 사용자에게 예외 메시지 노출 X (운영 안전성)
+    include-stacktrace: never
+    include-binding-errors: never
+    whitelabel:
+      enabled: false                  # Whitelabel 페이지 사용 X (커스텀 에러 페이지 사용)
+
 logging:
   level:
     org.hibernate.SQL: debug

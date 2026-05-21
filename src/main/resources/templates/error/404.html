@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>페이지를 찾을 수 없음</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 560px; margin: 80px auto; padding: 0 20px; text-align: center; }
+        .code { font-size: 4rem; color: #2563eb; margin: 0; font-weight: 700; }
+        h1 { font-size: 1.5rem; margin: 8px 0 16px; }
+        p { color: #6b7280; line-height: 1.6; }
+        .btn { display: inline-block; padding: 10px 18px; background: #2563eb; color: white; border-radius: 8px; text-decoration: none; margin-top: 16px; }
+        .btn:hover { background: #1d4ed8; }
+    </style>
+</head>
+<body>
+<p class="code">404</p>
+<h1>페이지를 찾을 수 없습니다</h1>
+<p>요청하신 페이지가 존재하지 않거나, 삭제되었을 수 있습니다.<br>
+   URL을 다시 확인해 주세요.</p>
+<a th:href="@{/}" class="btn">홈으로 돌아가기</a>
+</body>
+</html>
