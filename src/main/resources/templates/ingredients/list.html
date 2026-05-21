@@ -54,23 +54,29 @@
         <th>용량</th>
         <th>1단위당</th>
         <th>몰</th>
+        <th>구매하기</th>
     </tr>
     </thead>
     <tbody>
     <tr th:if="${#lists.isEmpty(ingredients)}">
-        <td colspan="6" style="text-align:center; padding:20px; color:#6b7280">
+        <td colspan="7" style="text-align:center; padding:20px; color:#6b7280">
             조회 결과가 없습니다.
         </td>
     </tr>
     <tr th:each="i : ${ingredients}">
         <td>
-            <a th:href="${i.link}" target="_blank" th:text="${i.title}"></a>
+            <a th:href="${i.link}" target="_blank" rel="noopener noreferrer" th:text="${i.title}"></a>
         </td>
         <td th:text="${i.category}"></td>
         <td th:text="${#numbers.formatInteger(i.price, 3, 'COMMA')} + ' 원'"></td>
         <td th:text="${i.totalAmount + ' ' + i.unit}"></td>
         <td th:text="${i.pricePerGram + ' 원/' + (i.unit.name() == 'G' ? 'g' : 'ml')}"></td>
         <td th:text="${i.mallName}"></td>
+        <td>
+            <a th:href="${@affiliateLinkBuilder.coupangSearch(i.category != null ? i.category : i.title)}"
+               target="_blank" rel="noopener noreferrer sponsored"
+               style="font-size:0.85rem;color:#dc2626;">쿠팡 검색</a>
+        </td>
     </tr>
     </tbody>
 </table>

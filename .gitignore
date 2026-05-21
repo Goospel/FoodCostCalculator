@@ -45,3 +45,8 @@ application-local.yml
 ### Uploaded images (사용자 업로드 파일은 커밋 제외) ###
 uploads/
 /uploads/
+
+### 운영 환경변수 (DB 비번, admin 비번 등) ###
+.env.prod
+.env.production
+.env.local

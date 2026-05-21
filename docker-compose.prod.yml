@@ -1,0 +1,81 @@
+# =========================================================
+# 운영(EC2) 배포용 — 앱 + MySQL 한 머신에 함께 띄움
+# 사용:
+#   1. 같은 폴더에 .env.prod 작성 (.env.prod.example 참고)
+#   2. docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+#   3. 앱 부팅 후 첫 로그에서 admin 랜덤 비번 확인 (INITIAL_ADMIN_PASSWORD 미설정 시)
+# =========================================================
+
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: coast-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?need DB_ROOT_PASSWORD in .env.prod}
+      MYSQL_DATABASE: coast_calculator
+      MYSQL_USER: ${DB_USERNAME:?need DB_USERNAME}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?need DB_PASSWORD}
+      TZ: Asia/Seoul
+    # 운영에선 외부 포트 미노출 (앱 컨테이너에서만 접근)
+    expose:
+      - "3306"
+    volumes:
+      - coast-mysql-data:/var/lib/mysql
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-time-zone=+09:00
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p$$MYSQL_ROOT_PASSWORD"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: coast-calculator:latest
+    container_name: coast-app
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      # DB 연결 — 같은 docker network의 mysql 서비스명으로 접근
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/coast_calculator?serverTimezone=Asia/Seoul&characterEncoding=UTF-8
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+
+      # admin 시드
+      INITIAL_ADMIN_USERNAME: ${INITIAL_ADMIN_USERNAME:-admin}
+      INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-}
+
+      # Naver API (Mock 끄고 실 API 사용 시)
+      NAVER_CLIENT_ID: ${NAVER_CLIENT_ID:-}
+      NAVER_CLIENT_SECRET: ${NAVER_CLIENT_SECRET:-}
+      NAVER_MOCK_ENABLED: ${NAVER_MOCK_ENABLED:-true}
+
+      # 제휴 마케팅 (수익 채널)
+      COUPANG_TRACKING_ID: ${COUPANG_TRACKING_ID:-}
+
+      # 업로드 디렉토리 (컨테이너 내부, 볼륨 마운트됨)
+      UPLOAD_DIR: /app/uploads
+
+      # JVM 힙 (t3.micro는 1GB라 보수적으로)
+      JAVA_OPTS: "-Xms256m -Xmx512m -XX:+UseG1GC -Djava.security.egd=file:/dev/./urandom"
+    ports:
+      - "80:8080"   # 호스트 80 → 컨테이너 8080. HTTPS는 추후 Caddy/Nginx 앞단으로
+    volumes:
+      - coast-uploads:/app/uploads
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://localhost:8080/login >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  coast-mysql-data:
+  coast-uploads:

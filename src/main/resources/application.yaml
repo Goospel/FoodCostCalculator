@@ -42,7 +42,19 @@ naver:
     client-secret: ${NAVER_CLIENT_SECRET:}
     ttl-hours: 24
     display: 100
-    mock-enabled: true
+    mock-enabled: ${NAVER_MOCK_ENABLED:true}
 
 storage:
   upload-dir: ${UPLOAD_DIR:./uploads}
+
+app:
+  admin:
+    username: ${INITIAL_ADMIN_USERNAME:admin}
+    # 환경변수 INITIAL_ADMIN_PASSWORD 가 비어 있으면 부팅 시 랜덤 비번을 1회 로그로 출력합니다.
+    # 운영에서는 반드시 환경변수로 주입하세요.
+    initial-password: ${INITIAL_ADMIN_PASSWORD:}
+
+# 제휴 마케팅 (수익 채널). tracking-id가 비어 있으면 일반 검색 URL만 노출됨.
+affiliate:
+  coupang:
+    tracking-id: ${COUPANG_TRACKING_ID:}

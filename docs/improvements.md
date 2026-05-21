@@ -159,9 +159,9 @@
 - [ ] T1-1. Flyway/Liquibase 도입 — 해결일: -
   - 해결 PR/커밋: -
   - 비고: -
-- [ ] T1-2. Admin 시드 시 환경변수/랜덤 비번 — 해결일: -
-  - 해결 PR/커밋: -
-  - 비고: -
+- [x] T1-2. Admin 시드 시 환경변수/랜덤 비번 — 해결일: 2026-05-21
+  - 해결 PR/커밋: feat: Stage A-1 — admin 비번 환경변수화 + 랜덤 fallback
+  - 비고: `DataInitializer`에서 코드 하드코딩 제거. `app.admin.initial-password` (환경변수 `INITIAL_ADMIN_PASSWORD`)로 주입. 미설정 시 SecureRandom으로 16자 강한 랜덤 비번 생성 → WARN 로그로 1회 출력. 로컬 개발은 `application-local.yaml`에 고정 비번(`admin123!!`) 유지. 운영 EC2 배포 시 env로 전달.
 - [ ] T1-3. 비밀번호 정책 강화 + brute force 방어 — 해결일: -
   - 해결 PR/커밋: -
   - 비고: -
@@ -225,9 +225,9 @@
 - [ ] T3-21. i18n + 접근성 — 해결일: -
   - 해결 PR/커밋: -
   - 비고: -
-- [ ] T3-22. Dockerfile + CI/CD 파이프라인 — 해결일: -
-  - 해결 PR/커밋: -
-  - 비고: -
+- [x] T3-22. Dockerfile + CI/CD 파이프라인 — 해결일: 2026-05-21 (부분 해결)
+  - 해결 PR/커밋: feat: Stage A-2 — 운영용 Dockerfile + docker-compose.prod
+  - 비고: **Dockerfile** 완성 — 멀티스테이지 (JDK 25 builder → JRE 25 runtime, 비루트 app 사용자, JAVA_OPTS env). **`docker-compose.prod.yml`** — 앱 + MySQL 한 머신 구성, 외부 포트는 앱 80만 노출, 볼륨(`coast-uploads`, `coast-mysql-data`), healthcheck. **`.env.prod.example`** + `.dockerignore` 추가, `.env.prod`는 .gitignore. **CI/CD 파이프라인(GitHub Actions)는 미해결** — Stage C에서.
 
 ---
 

@@ -1,0 +1,33 @@
+# Docker 빌드 컨텍스트에서 제외할 항목
+
+# Gradle/빌드 산출물
+.gradle/
+build/
+out/
+*.iml
+.idea/
+
+# 로컬 시크릿 / 환경
+application-local.yaml
+application-local.yml
+src/main/resources/application-local.yaml
+src/main/resources/application-local.yml
+.env
+.env.local
+.env.prod
+.env.production
+
+# 업로드된 파일 (이미지)
+uploads/
+
+# Git / 문서 / 임시
+.git/
+.gitignore
+.gitattributes
+*.md
+docs/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
