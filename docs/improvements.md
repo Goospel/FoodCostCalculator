@@ -167,10 +167,10 @@
   - 비고: -
 - [ ] T1-4. 시크릿 외부 저장소 연동 — 해결일: -
   - 해결 PR/커밋: -
-  - 비고: -
-- [ ] T1-5. 글로벌 ExceptionHandler + 에러 페이지 — 해결일: -
-  - 해결 PR/커밋: -
-  - 비고: -
+  - 비고: (부분 진척, 2026-05-21) `application-local.yaml` + `.gitignore`로 로컬 개발 시크릿 분리 완료. 운영 등급 외부 저장소(Vault/AWS Secrets Manager/K8s Secret) 연동은 미완료
+- [x] T1-5. 글로벌 ExceptionHandler + 에러 페이지 — 해결일: 2026-05-21
+  - 해결 PR/커밋: feat: Task 6 마무리 (전역 예외 처리 + 에러 페이지)
+  - 비고: `web/error/GlobalExceptionHandler`로 AccessDenied/NoResource/IllegalArgument/IllegalState/Generic 매핑. `templates/error/{403,404,500,error}.html` 커스텀 페이지. `server.error.include-message=never`로 운영 안전성 확보.
 - [ ] T1-6. 핵심 분기 통합 테스트 (Security, Repository, Service) — 해결일: -
   - 해결 PR/커밋: -
   - 비고: -
@@ -191,7 +191,7 @@
   - 비고: -
 - [ ] T2-11. N+1 점검 (전체 컬렉션 경로) — 해결일: -
   - 해결 PR/커밋: -
-  - 비고: -
+  - 비고: (부분 진척, 2026-05-21) `RecipeRepository.findByUserOrderByUpdatedAtDesc`, `findAllByOrderByCreatedAtDesc`, `findByNameContainingIgnoreCase...`, `findWithDetailsById`에 `@EntityGraph(attributePaths={"user","ingredients"})` 적용. 그러나 `RecipeService.findMine`은 여전히 `getIngredients().size()` 강제 초기화 패턴. 전체 컬렉션 경로 감사 + DataSource Proxy 같은 자동 감지 도구는 미적용
 - [ ] T2-12. Optimistic locking (@Version) — 해결일: -
   - 해결 PR/커밋: -
   - 비고: -
