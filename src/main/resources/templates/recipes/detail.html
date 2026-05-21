@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head>
+    <meta charset="UTF-8">
+    <title th:text="${recipe.name} + ' — 레시피'"></title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 960px; margin: 24px auto; padding: 0 16px; }
+        nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+        h1 { font-size: 1.8rem; margin: 8px 0; }
+        .meta { color: #6b7280; font-size: 0.95rem; margin-bottom: 24px; }
+        .meta strong { color: #111827; }
+        .btn { padding: 8px 14px; background: #2563eb; color: white; border: none; border-radius: 6px; text-decoration: none; cursor: pointer; display: inline-block; }
+        .btn-secondary { background: #6b7280; }
+        .btn-danger { background: #dc2626; }
+        table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+        th, td { border-bottom: 1px solid #e5e7eb; padding: 10px 8px; text-align: left; font-size: 0.95rem; }
+        th { background: #f9fafb; }
+        .actions { margin-top: 24px; display: flex; gap: 8px; }
+        a { color: #2563eb; }
+        .empty { color: #9ca3af; font-style: italic; }
+    </style>
+</head>
+<body>
+<nav>
+    <div>
+        <a th:href="@{/}">← 홈</a>
+        <span sec:authorize="isAuthenticated()">
+            | <a th:href="@{/recipes}">내 레시피</a>
+        </span>
+    </div>
+    <div>
+        <span sec:authorize="!isAuthenticated()">
+            <a th:href="@{/login}">로그인</a> |
+            <a th:href="@{/signup}">회원가입</a>
+        </span>
+        <span sec:authorize="isAuthenticated()">
+            <span sec:authentication="name"></span>
+            <form th:action="@{/logout}" method="post" style="display:inline">
+                <button type="submit" class="btn btn-secondary">로그아웃</button>
+            </form>
+        </span>
+    </div>
+</nav>
+
+<h1 th:text="${recipe.name}"></h1>
+<p class="meta">
+    작성자: <strong th:text="${recipe.user.username}"></strong>
+    · 인분: <strong th:text="${recipe.servings} + '인분'"></strong>
+    · 작성일: <strong th:text="${#temporals.format(recipe.createdAt, 'yyyy-MM-dd HH:mm')}"></strong>
+    <span th:if="${recipe.updatedAt != null and recipe.updatedAt != recipe.createdAt}">
+        · 수정일: <strong th:text="${#temporals.format(recipe.updatedAt, 'yyyy-MM-dd HH:mm')}"></strong>
+    </span>
+</p>
+
+<h3>재료</h3>
+<table>
+    <thead>
+    <tr>
+        <th style="width:10%">#</th>
+        <th style="width:55%">카테고리</th>
+        <th style="width:20%">양</th>
+        <th style="width:15%">단위</th>
+    </tr>
+    </thead>
+    <tbody>
+    <tr th:if="${#lists.isEmpty(recipe.ingredients)}">
+        <td colspan="4" class="empty" style="text-align:center; padding:20px">재료가 없습니다</td>
+    </tr>
+    <tr th:each="ri, iter : ${recipe.ingredients}">
+        <td th:text="${iter.index + 1}"></td>
+        <td th:text="${ri.categoryName}"></td>
+        <td th:text="${ri.amount}"></td>
+        <td th:text="${ri.unit}"></td>
+    </tr>
+    </tbody>
+</table>
+
+<!-- 원가 계산 결과 영역 (Task 5에서 구현 예정) -->
+
+<div class="actions"
+     th:if="${#authentication != null and #authentication.authenticated and recipe.user.username == #authentication.name}">
+    <a th:href="@{/recipes/{id}/edit(id=${recipe.id})}" class="btn">수정</a>
+    <form th:action="@{/recipes/{id}/delete(id=${recipe.id})}" method="post"
+          onsubmit="return confirm('정말 삭제하시겠습니까?')" style="display:inline">
+        <button type="submit" class="btn btn-danger">삭제</button>
+    </form>
+</div>
+</body>
+</html>

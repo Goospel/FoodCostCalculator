@@ -5,6 +5,7 @@ import com.goosepl.coastCalculator.domain.recipe.dto.RecipeIngredientForm;
 import com.goosepl.coastCalculator.domain.user.User;
 import com.goosepl.coastCalculator.domain.user.UserRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,6 +23,26 @@ public class RecipeService {
     public List<Recipe> findMyRecipes(String username) {
         User user = loadUser(username);
         return recipeRepository.findByUserOrderByUpdatedAtDesc(user);
+    }
+
+    @Transactional(readOnly = true)
+    public List<Recipe> findRecent(int limit) {
+        return recipeRepository.findAllByOrderByCreatedAtDesc(PageRequest.of(0, limit));
+    }
+
+    @Transactional(readOnly = true)
+    public List<Recipe> searchByName(String keyword, int limit) {
+        if (keyword == null || keyword.isBlank()) {
+            return findRecent(limit);
+        }
+        return recipeRepository.findByNameContainingIgnoreCaseOrderByCreatedAtDesc(
+                keyword.trim(), PageRequest.of(0, limit));
+    }
+
+    @Transactional(readOnly = true)
+    public Recipe findForView(Long id) {
+        return recipeRepository.findWithDetailsById(id)
+                .orElseThrow(() -> new IllegalArgumentException("레시피를 찾을 수 없습니다: id=" + id));
     }
 
     @Transactional(readOnly = true)

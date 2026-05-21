@@ -60,7 +60,14 @@ public class RecipeController {
     }
 
     @GetMapping("/{id}")
-    public String detail(@PathVariable Long id, Principal principal, Model model) {
+    public String detail(@PathVariable Long id, Model model) {
+        Recipe recipe = recipeService.findForView(id);
+        model.addAttribute("recipe", recipe);
+        return "recipes/detail";
+    }
+
+    @GetMapping("/{id}/edit")
+    public String editForm(@PathVariable Long id, Principal principal, Model model) {
         Recipe recipe = recipeService.findMine(id, principal.getName());
         model.addAttribute("recipe", recipe);
         if (!model.containsAttribute("recipeForm")) {

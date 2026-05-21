@@ -3,37 +3,90 @@
       xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
 <head>
     <meta charset="UTF-8">
-    <title>레시피 원가 계산기</title>
+    <title>레시피 허브 — coastCalculator</title>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 720px; margin: 40px auto; padding: 0 20px; }
-        nav { display: flex; gap: 12px; justify-content: flex-end; margin-bottom: 32px; }
-        a { color: #2563eb; text-decoration: none; }
-        a:hover { text-decoration: underline; }
-        h1 { font-size: 1.8rem; }
-        .hero { padding: 24px; background: #f3f4f6; border-radius: 8px; margin-top: 16px; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 1100px; margin: 24px auto; padding: 0 16px; }
+        nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+        h1 { font-size: 1.6rem; margin: 0; }
+        .tagline { color: #6b7280; font-size: 0.95rem; margin-top: 6px; }
+        .search { display: flex; gap: 8px; margin-top: 24px; }
+        .search input { flex: 1; padding: 12px 14px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 1rem; }
+        .btn { padding: 10px 16px; background: #2563eb; color: white; border: none; border-radius: 8px; text-decoration: none; cursor: pointer; display: inline-block; font-size: 0.95rem; }
+        .btn-secondary { background: #6b7280; }
+        .nav-links { display: flex; gap: 12px; align-items: center; font-size: 0.95rem; }
+        .nav-links a { color: #2563eb; text-decoration: none; }
+        .nav-links a:hover { text-decoration: underline; }
+        .section-head { display: flex; justify-content: space-between; align-items: center; margin-top: 32px; margin-bottom: 12px; }
+        .section-head h2 { font-size: 1.2rem; margin: 0; }
+        .recipe-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+        .card { border: 1px solid #e5e7eb; border-radius: 8px; padding: 14px 16px; background: white; transition: box-shadow 0.15s; }
+        .card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+        .card h3 { margin: 0 0 8px 0; font-size: 1.05rem; }
+        .card h3 a { color: #111827; text-decoration: none; }
+        .card h3 a:hover { color: #2563eb; }
+        .card .meta { color: #6b7280; font-size: 0.85rem; line-height: 1.5; }
+        .card .meta .author { color: #2563eb; }
+        .empty { padding: 40px 0; text-align: center; color: #6b7280; }
     </style>
 </head>
 <body>
 <nav>
-    <span sec:authorize="!isAuthenticated()">
-        <a th:href="@{/login}">로그인</a>
-        <a th:href="@{/signup}">회원가입</a>
-    </span>
-    <span sec:authorize="isAuthenticated()">
-        <span sec:authentication="name">user</span>님 환영합니다
-        <a th:href="@{/ingredients}">재료 조회</a>
-        <a sec:authorize="hasRole('ADMIN')" th:href="@{/admin/ingredients}">재료 관리</a>
-        <a th:href="@{/recipes}">내 레시피</a>
-        <form th:action="@{/logout}" method="post" style="display:inline">
-            <button type="submit">로그아웃</button>
-        </form>
-    </span>
+    <div>
+        <h1>🍳 레시피 허브</h1>
+        <div class="tagline">레시피를 공유하고, 1g당 단가로 원가를 비교해보세요</div>
+    </div>
+    <div class="nav-links">
+        <span sec:authorize="!isAuthenticated()">
+            <a th:href="@{/login}">로그인</a>
+            <a th:href="@{/signup}">회원가입</a>
+        </span>
+        <span sec:authorize="isAuthenticated()">
+            <a th:href="@{/recipes}">내 레시피</a>
+            <a th:href="@{/ingredients}">재료 조회</a>
+            <a sec:authorize="hasRole('ADMIN')" th:href="@{/admin/ingredients}">재료 관리</a>
+            <span sec:authentication="name"></span>
+            <form th:action="@{/logout}" method="post" style="display:inline">
+                <button type="submit" class="btn btn-secondary">로그아웃</button>
+            </form>
+        </span>
+    </div>
 </nav>
 
-<h1>레시피 원가 계산기</h1>
-<div class="hero">
-    <p>네이버 쇼핑 가격을 기반으로 레시피의 재료 원가를 계산해 드립니다.</p>
-    <p>업소용 대용량 제품의 1g당 가격을 정규화해 공정한 비교가 가능합니다.</p>
+<form class="search" method="get" th:action="@{/}">
+    <input type="text" name="q" th:value="${q}" placeholder="레시피 이름으로 검색 (예: 김치찌개)">
+    <button type="submit" class="btn">검색</button>
+    <a th:if="${q != null and !#strings.isEmpty(q)}" th:href="@{/}" class="btn btn-secondary">초기화</a>
+</form>
+
+<div class="section-head">
+    <h2 th:text="${q != null and !#strings.isEmpty(q)} ? '검색 결과: ' + ${q} : '최근 레시피'"></h2>
+    <a sec:authorize="isAuthenticated()" th:href="@{/recipes/new}" class="btn">+ 새 레시피</a>
+</div>
+
+<div class="empty" th:if="${#lists.isEmpty(recipes)}">
+    <p th:if="${q != null and !#strings.isEmpty(q)}">검색 결과가 없습니다.</p>
+    <p th:if="${q == null or #strings.isEmpty(q)}">
+        아직 등록된 레시피가 없습니다.
+        <span sec:authorize="isAuthenticated()">
+            <a th:href="@{/recipes/new}">첫 레시피를 작성</a>해보세요!
+        </span>
+        <span sec:authorize="!isAuthenticated()">
+            <a th:href="@{/signup}">회원가입</a> 후 첫 레시피를 작성해보세요!
+        </span>
+    </p>
+</div>
+
+<div class="recipe-grid" th:unless="${#lists.isEmpty(recipes)}">
+    <div class="card" th:each="r : ${recipes}">
+        <h3><a th:href="@{/recipes/{id}(id=${r.id})}" th:text="${r.name}"></a></h3>
+        <div class="meta">
+            <span class="author" th:text="'@' + ${r.user.username}"></span> ·
+            <span th:text="${r.servings} + '인분'"></span> ·
+            <span th:text="'재료 ' + ${#lists.size(r.ingredients)} + '개'"></span>
+            <br>
+            <span th:text="${#temporals.format(r.createdAt, 'yyyy-MM-dd')}"></span>
+        </div>
+    </div>
 </div>
 </body>
 </html>
