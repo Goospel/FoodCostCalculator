@@ -24,6 +24,9 @@
 <div th:if="${param.error}" class="alert alert-error">
     아이디 또는 비밀번호가 일치하지 않습니다.
 </div>
+<div th:if="${param.locked}" class="alert alert-error">
+    로그인 시도가 너무 많아 계정이 일시 잠겼습니다. <strong>15분 후</strong> 다시 시도해 주세요.
+</div>
 <div th:if="${param.logout}" class="alert alert-success">
     로그아웃되었습니다.
 </div>

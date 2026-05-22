@@ -162,9 +162,9 @@
 - [x] T1-2. Admin 시드 시 환경변수/랜덤 비번 — 해결일: 2026-05-21
   - 해결 PR/커밋: feat: Stage A-1 — admin 비번 환경변수화 + 랜덤 fallback
   - 비고: `DataInitializer`에서 코드 하드코딩 제거. `app.admin.initial-password` (환경변수 `INITIAL_ADMIN_PASSWORD`)로 주입. 미설정 시 SecureRandom으로 16자 강한 랜덤 비번 생성 → WARN 로그로 1회 출력. 로컬 개발은 `application-local.yaml`에 고정 비번(`admin123!!`) 유지. 운영 EC2 배포 시 env로 전달.
-- [ ] T1-3. 비밀번호 정책 강화 + brute force 방어 — 해결일: -
-  - 해결 PR/커밋: -
-  - 비고: -
+- [x] T1-3. 비밀번호 정책 강화 + brute force 방어 — 해결일: 2026-05-21
+  - 해결 PR/커밋: feat: T1-3 — 비밀번호 8자+영숫자 검증 + 메모리 카운터 잠금
+  - 비고: **(1)** `SignupRequest.password`에 `@Size(min=8)` + `@Pattern("(?=.*[A-Za-z])(?=.*\\d).+")` — 4자 가능 → 8자 영숫자 필수. signup.html에 정책 안내. **(2)** `LoginAttemptService` (ConcurrentHashMap 기반) — username당 5회 실패 시 15분 잠금, 자동 해제. `AuthenticationEventListener`가 Spring Security의 `AuthenticationFailureBadCredentialsEvent`/`AuthenticationSuccessEvent`를 구독해 카운터 갱신. **(3)** `CustomUserDetailsService`가 `isBlocked(username)` 호출해서 `.accountLocked(true)`로 반환 → Spring이 `LockedException` 발생. `SecurityConfig.authenticationFailureHandler`가 `LockedException` 분기로 `/login?locked` redirect, login.html에 "15분 후 다시 시도" 메시지. **미해결**: IP 기반 차단(Bucket4j), captcha, 비번 재설정(T3-14).
 - [ ] T1-4. 시크릿 외부 저장소 연동 — 해결일: -
   - 해결 PR/커밋: -
   - 비고: (부분 진척, 2026-05-21) `application-local.yaml` + `.gitignore`로 로컬 개발 시크릿 분리 완료. 운영 등급 외부 저장소(Vault/AWS Secrets Manager/K8s Secret) 연동은 미완료
