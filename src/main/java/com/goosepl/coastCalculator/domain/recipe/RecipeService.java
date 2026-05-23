@@ -1,5 +1,7 @@
 package com.goosepl.coastCalculator.domain.recipe;
 
+import com.goosepl.coastCalculator.domain.ingredient.Ingredient;
+import com.goosepl.coastCalculator.domain.ingredient.IngredientRepository;
 import com.goosepl.coastCalculator.domain.recipe.dto.RecipeForm;
 import com.goosepl.coastCalculator.domain.recipe.dto.RecipeIngredientForm;
 import com.goosepl.coastCalculator.domain.user.User;
@@ -20,6 +22,7 @@ public class RecipeService {
 
     private final RecipeRepository recipeRepository;
     private final UserRepository userRepository;
+    private final IngredientRepository ingredientRepository;
     private final ImageStorageService imageStorageService;
 
     @Transactional(readOnly = true)
@@ -118,14 +121,45 @@ public class RecipeService {
             if (row.getUnit() == null) {
                 throw new IllegalArgumentException("재료 단위를 선택해주세요: " + row.getCategoryName());
             }
+            String rowCategory = row.getCategoryName().trim();
+            Ingredient selected = resolveSelectedIngredient(row.getSelectedIngredientId(), rowCategory, row.getUnit());
             RecipeIngredient ingredient = RecipeIngredient.builder()
-                    .categoryName(row.getCategoryName().trim())
+                    .categoryName(rowCategory)
+                    .selectedIngredient(selected)
                     .amount(row.getAmount())
                     .unit(row.getUnit())
                     .ordering(order++)
                     .build();
             recipe.addIngredient(ingredient);
         }
+    }
+
+    /**
+     * T3-17: 사용자가 "이 제품으로 고정"으로 특정 Ingredient를 선택한 경우 검증 + 반환.
+     * 카테고리(대소문자 무시)와 단위가 행과 일치해야 함. 불일치 시 IllegalArgumentException으로 저장 거부.
+     */
+    private Ingredient resolveSelectedIngredient(Long selectedId, String rowCategory, com.goosepl.coastCalculator.domain.ingredient.Unit rowUnit) {
+        if (selectedId == null) {
+            return null;
+        }
+        Ingredient selected = ingredientRepository.findById(selectedId)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "선택한 제품을 찾을 수 없습니다 (id=" + selectedId + "): " + rowCategory));
+        if (selected.getCategory() == null || selected.getCategory().isBlank()) {
+            throw new IllegalArgumentException(
+                    "선택한 제품(" + selected.getTitle() + ")은 카테고리가 부여되지 않아 사용할 수 없습니다");
+        }
+        if (!selected.getCategory().equalsIgnoreCase(rowCategory)) {
+            throw new IllegalArgumentException(
+                    "선택한 제품의 카테고리(" + selected.getCategory()
+                            + ")가 입력 카테고리(" + rowCategory + ")와 다릅니다");
+        }
+        if (selected.getUnit() != rowUnit) {
+            throw new IllegalArgumentException(
+                    "선택한 제품의 단위(" + selected.getUnit()
+                            + ")가 입력 단위(" + rowUnit + ")와 다릅니다: " + rowCategory);
+        }
+        return selected;
     }
 
     private User loadUser(String username) {

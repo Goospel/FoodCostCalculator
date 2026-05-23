@@ -23,6 +23,7 @@
 | T1-6 | 핵심 통합 테스트 4종 (H2+Mockito+@DataJpaTest+@SpringBootTest, 56 테스트) | ✅ |
 | T2-9 | Naver API 타임아웃(5s/10s) + Spring Retry(3회 지수 backoff) + Recover fallback | ✅ |
 | T3-22 후속 | GitHub Actions CI/CD (`.github/workflows/ci.yml`) — test + GHCR 이미지 푸시 | ✅ |
+| T3-17 | selectedIngredient UI — "이 제품으로 고정" 드롭다운 + 카테고리/단위 검증 (64 테스트) | ✅ |
 | **다음** | **(보류) T2-13 Actuator + 모니터링 — 배포 직전 일괄 처리** | ⏸ |
 
 ---
@@ -233,6 +234,8 @@ EC2 비공개 베타용 준비 단계. 실제 EC2 배포는 보류 (사용자가
 | 28 | 비밀번호 정책 (T1-3) | 최소 8자 + 영문/숫자 필수 (`@Pattern`) |
 | 29 | 잠금 방식 (T1-3) | 메모리 카운터 (`ConcurrentHashMap`) — 5회/15분, DB 컬럼 X |
 | 30 | 잠금 해제 (T1-3) | 자동 — 15분 경과 시 카운터 만료, 관리자 개입 불필요 |
+| 31 | selectedIngredient UI (T3-17) | 폼 GET 시점에 `findAllVisible` 전체를 카테고리별 `<optgroup>`으로 렌더링, JS 없음 |
+| 32 | selectedIngredient 카테고리/단위 불일치 (T3-17) | 서버에서 에러 던지고 저장 거부 (덮어쓰기·무시 X) |
 
 ---
 
@@ -305,6 +308,16 @@ EC2 비공개 베타용 준비 단계. 실제 EC2 배포는 보류 (사용자가
 - ✅ `LoginAttemptService`에 `Clock clock` 필드 + 테스트 생성자 추가 (운영 코드 작은 리팩토링 — 기본 생성자 유지)
 - ✅ Spring Boot 4 패키지 분리 대응: `@DataJpaTest` → `org.springframework.boot.data.jpa.test.autoconfigure`, `TestEntityManager` → `org.springframework.boot.jpa.test.autoconfigure`, `@AutoConfigureMockMvc` → `org.springframework.boot.webmvc.test.autoconfigure`
 
+## T3-17 selectedIngredient UI — 완료
+- ✅ `RecipeIngredientForm.selectedIngredientId` 추가 + `from()` 갱신
+- ✅ `RecipeService` IngredientRepository 주입 + `resolveSelectedIngredient` 검증 헬퍼 (미존재/카테고리 null/카테고리 불일치/단위 불일치 모두 IllegalArgumentException)
+- ✅ `RecipeController` IngredientService 주입 + `loadIngredientGroups()` (LinkedHashMap 그루핑) + GET /new, GET /{id}/edit, 검증 실패 시 모두 모델에 ingredientGroups 추가
+- ✅ `form.html` 5번째 칼럼 "고정 제품 (선택)" + `<optgroup>` 그루핑된 ingredient option
+- ✅ `detail.html` 재료 테이블 5번째 칼럼에 selectedIngredient.title 또는 `— (자동)`
+- ✅ `RecipeRepository.findWithDetailsById` EntityGraph에 `ingredients.selectedIngredient` 추가 (open-in-view: false 대응)
+- ✅ RecipeServiceTest +5 케이스 — set / 단위 불일치 / 카테고리 불일치 / null 유지 + ingredientRepository 미호출 / 미존재 ID
+- ✅ **전체 64 테스트 통과 (이전 59 → +5)**
+
 ## T2-9 Naver API 안정성 — 완료
 - ✅ 의존성: `spring-retry:2.0.12` (Boot BOM 미관리 → 버전 명시) + `spring-aspects` (BOM 관리)
 - ✅ `RetryConfig` (`@EnableRetry`)
@@ -318,6 +331,37 @@ EC2 비공개 베타용 준비 단계. 실제 EC2 배포는 보류 (사용자가
   - 5xx 영속 실패 → 3회 호출 후 Recover 빈 리스트
   - blank 키워드 즉시 빈 리스트 (네트워크 호출 X)
 - ✅ **전체 59 테스트 29초 통과**
+
+---
+
+# T3-17: selectedIngredient UI 완성 — 완료 (2026-05-23)
+
+`improvements.md` T3-17 해결.
+
+## 배경
+`RecipeIngredient.selectedIngredient` FK는 Task 4 시점부터 있었고 `RecipeCostCalculator`가 `selectedIngredient != null`이면 정책 무시하고 직접 단가 사용하도록 이미 구현되어 있었음. 그러나 폼/DTO/Service가 이 FK를 채울 경로가 없어 **dead code** 상태. T3-17은 그 UI를 채워 넣음.
+
+## 설계 (JS 없음 정책 준수 — Open Q #24)
+1. **`RecipeController.GET /recipes/new`, `GET /recipes/{id}/edit`** — `ingredientService.findAllVisible()` (`category != null` 인 것만, 카테고리 ASC + pricePerGram ASC 정렬됨)을 `LinkedHashMap<카테고리, List<Ingredient>>`로 그루핑해 모델에 `ingredientGroups`로 담음.
+2. **`form.html`** — 각 재료 행에 다섯 번째 칼럼 "고정 제품 (선택)" 추가. `<select>` 안에 `자동 (정책 사용)` 옵션 + `<optgroup label="카테고리">`별로 ingredient 옵션 (`title — mallName (pricePerGram원/g|ml)`).
+3. **`RecipeIngredientForm.selectedIngredientId`** — 새 nullable `Long` 필드. `from(RecipeIngredient)`에서 기존 `selectedIngredient.id`를 채워 편집 폼에서 선택 상태 복원.
+4. **`RecipeService.applyIngredients`** — `selectedIngredientId` 있으면 `IngredientRepository.findById`로 조회 후 검증:
+   - 미존재 → "선택한 제품을 찾을 수 없습니다 (id=...)"
+   - `category == null` → "선택한 제품은 카테고리가 부여되지 않아 사용할 수 없습니다"
+   - `category != row.categoryName` (대소문자 무시) → "선택한 제품의 카테고리(...)가 입력 카테고리(...)와 다릅니다"
+   - `unit != row.unit` → "선택한 제품의 단위(...)가 입력 단위(...)와 다릅니다"
+   모두 `IllegalArgumentException` → GlobalExceptionHandler → 폼으로 다시 렌더 (errorMessage 표시).
+5. **`detail.html`** — 재료 테이블에 "고정 제품" 칼럼 추가. `ri.selectedIngredient != null`이면 title, 아니면 `— (자동)`.
+6. **`RecipeRepository.findWithDetailsById`** — EntityGraph에 `ingredients.selectedIngredient` 추가. `open-in-view: false` 환경에서 detail.html 렌더링 시 LazyInitializationException 방지. Hibernate가 LEFT JOIN으로 묶어 쿼리 카운트 ≤3 임계값(`RecipeRepositoryTest`) 그대로 통과.
+
+## 의도적 비포함
+- **카테고리 자동 변경 / 동기화**: 사용자가 행 카테고리를 "밀가루"로 입력하고 제품을 카테고리 "설탕"인 걸 선택해도 자동으로 행 카테고리를 덮어쓰지 않음. **에러 던지고 저장 거부**하여 사용자 의도(행 카테고리명)를 보존. 사용자가 옵션 1 선택.
+- **카테고리 자유 입력 유지**: 폼의 카테고리 input은 여전히 자유 입력 (datalist X). 향후 T3-18 카테고리 정규화에서 다룸.
+- **selectedIngredient의 stale 체크**: 사용자가 선택한 시점과 저장 시점 사이에 Naver fetch로 ingredient.title이 바뀔 수 있으나, 단가 자체는 `pricePerGram`만 보면 됨. ID 기반이라 안전.
+
+## 테스트 (총 64, 이전 59 → +5)
+- `RecipeServiceTest` 추가 5종 — `selectedIngredientId` 지정 시 set / 단위 불일치 거부 / 카테고리 불일치 거부 / 미지정이면 null + ingredientRepository 호출 X / 존재하지 않는 ID 거부
+- `RecipeRepositoryTest` 그대로 통과 — EntityGraph 변경에도 쿼리 카운트 ≤3 유지
 
 ---
 
@@ -349,7 +393,7 @@ EC2 비공개 베타용 준비 단계. 실제 EC2 배포는 보류 (사용자가
 ## 이후 후보 (improvements.md 참조)
 
 - T2-8 비동기 / 스케줄러 기반 Naver refetch (T2-9와 짝)
-- T3-17 selectedIngredient UI 완성 (작은 분량, 사용자 가치 명확)
 - T2-7 페이지네이션 (홈/검색 N=20 하드코딩)
+- T3-18 카테고리 정규화 (마스터 테이블 / synonym) — T3-17과 자연 연결
 - T1-4 시크릿 외부 저장소 (현재 application-local.yaml 분리만 — 운영급 Vault/AWS Secrets 미적용)
 - (보류) EC2 실제 배포 + 배포 직전 T2-13 Actuator
