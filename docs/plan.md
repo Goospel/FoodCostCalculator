@@ -20,7 +20,9 @@
 | Stage A | 배포 준비 — admin 비번 외부화(T1-2) + Dockerfile(T3-22) + 제휴 링크 + EC2 가이드 | ✅ |
 | T1-1 | Flyway 도입 (V1 baseline + `ddl-auto: validate`) | ✅ |
 | T1-3 | 비밀번호 정책 (8자 영숫자) + brute force 방어 (5회/15분) | ✅ |
-| **다음** | **T1-6 핵심 통합 테스트 3종** (또는 T2-9 외부 호출 타임아웃) | ⏳ |
+| T1-6 | 핵심 통합 테스트 4종 (H2+Mockito+@DataJpaTest+@SpringBootTest, 56 테스트) | ✅ |
+| T2-9 | Naver API 타임아웃(5s/10s) + Spring Retry(3회 지수 backoff) + Recover fallback | ✅ |
+| **다음** | **T2-13 Actuator + 모니터링** (또는 T3-22 후속 GitHub Actions CI/CD) | ⏳ |
 
 ---
 
@@ -291,24 +293,51 @@ EC2 비공개 베타용 준비 단계. 실제 EC2 배포는 보류 (사용자가
 - ✅ 15분 경과 후 정확한 비번 → 로그인 성공 (자동 해제)
 - ✅ 성공 시 카운터 리셋 (`AuthenticationSuccessEvent` 구독)
 
+## T1-6 핵심 통합 테스트 4종 — 완료
+- ✅ 테스트 인프라: H2 (MySQL 호환) + `application-test.yaml` (Flyway off, ddl-auto:create-drop, Naver Mock 강제, `./build/test-uploads`)
+- ✅ `LoginAttemptServiceTest` (13) — `Clock` 주입 + `MutableClock`으로 시간 진행 시뮬레이션
+- ✅ `RecipeRepositoryTest` (4, `@DataJpaTest`) — EntityGraph 4개 메서드 + Hibernate Statistics 쿼리 카운트로 N+1 회귀 방지
+- ✅ `RecipeServiceTest` (6) — `findMine` 소유자/미존재/타인 분기, delete 간접 보호
+- ✅ `IngredientServiceTest` (5) — fetchAndUpsert 카테고리 보존(invariant), 신규 insert null, 파싱 실패 skip, blank 키워드 가드
+- ✅ `SecurityConfigTest` (16, `@SpringBootTest`+MockMvc) — 익명/USER/ADMIN × 공개/인증/관리자 경로 권한 룰
+- ✅ **전체 56 테스트, ./gradlew test 24초 통과**
+- ✅ `LoginAttemptService`에 `Clock clock` 필드 + 테스트 생성자 추가 (운영 코드 작은 리팩토링 — 기본 생성자 유지)
+- ✅ Spring Boot 4 패키지 분리 대응: `@DataJpaTest` → `org.springframework.boot.data.jpa.test.autoconfigure`, `TestEntityManager` → `org.springframework.boot.jpa.test.autoconfigure`, `@AutoConfigureMockMvc` → `org.springframework.boot.webmvc.test.autoconfigure`
+
+## T2-9 Naver API 안정성 — 완료
+- ✅ 의존성: `spring-retry:2.0.12` (Boot BOM 미관리 → 버전 명시) + `spring-aspects` (BOM 관리)
+- ✅ `RetryConfig` (`@EnableRetry`)
+- ✅ `RealNaverShoppingClient` 빌더: `JdkClientHttpRequestFactory` + connect 5s / read 10s
+- ✅ `@Retryable`: `ResourceAccessException`, `HttpServerErrorException` → 3회, 1s→2s→4s 지수 backoff. 4xx는 재시도 X
+- ✅ `@Recover`: 빈 리스트 + WARN 로그 — 사용자 UX 보호
+- ✅ `NaverApiProperties`에 `connectTimeoutMs`, `readTimeoutMs`, `maxAttempts`, `initialBackoffMs` + 기본값 보정
+- ✅ application.yaml + application-test.yaml에 설정 노출
+- ✅ 통합 테스트(`RealNaverShoppingClientRetryTest`, 3): JDK 내장 HttpServer로 stub Naver 운영
+  - 5xx 2회 → 3회째 성공 → 정확히 3번 호출, 결과 반환
+  - 5xx 영속 실패 → 3회 호출 후 Recover 빈 리스트
+  - blank 키워드 즉시 빈 리스트 (네트워크 호출 X)
+- ✅ **전체 59 테스트 29초 통과**
+
 ---
 
 # 다음 단계
 
-## T1-6 핵심 통합 테스트 3종 ← 다음
+## T2-13 Actuator + 모니터링 ← 다음
 
-`improvements.md` T1-6.
+`improvements.md` T2-13. 현재 외부에서 "앱이 살아있나? CPU/메모리 어떤지?" 알 수단이 0개.
 
-목표 (최소 안전망):
-- `@WebMvcTest`로 SecurityConfig 권한 룰 검증 (관리자/일반/익명 경로 분기)
-- `@DataJpaTest`로 EntityGraph 동작 검증 (LazyInit 방어)
-- `RecipeService.findMine` 소유자 체크, `IngredientService.fetchAndUpsert` 카테고리 보존 등 핵심 분기 단위 테스트
+목표:
+- `spring-boot-starter-actuator` 도입
+- `/actuator/health`, `/actuator/info`, `/actuator/metrics` 노출 (인증)
+- Prometheus 메트릭(`/actuator/prometheus`)은 선택 — micrometer-registry-prometheus 추가 시
+- 헬스 인디케이터 커스텀 (Naver Mock vs Real, DB ping 등)
 
 세부 설계는 작업 시작 시 결정.
 
 ## 이후 후보 (improvements.md 참조)
 
-- T2-9 외부 호출(Naver API) 타임아웃 + 리트라이
-- T2-13 Actuator + 모니터링
+- T3-22 후속 GitHub Actions CI/CD (T1-6 + T2-9 테스트 갖춰져 자연 타이밍)
+- T2-8 비동기 / 스케줄러 기반 Naver refetch (T2-9와 짝)
+- T3-17 selectedIngredient UI 완성 (작은 분량, 사용자 가치 명확)
 - T1-4 시크릿 외부 저장소 (현재 application-local.yaml 분리만 — 운영급 Vault/AWS Secrets 미적용)
 - (보류) EC2 실제 배포

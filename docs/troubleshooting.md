@@ -213,3 +213,118 @@ docker exec coast-calculator-mysql mysql -uroot -prootpass coast_calculator \
 ./gradlew bootRun --args='--spring.profiles.active=local' &
 until grep -qE "Started CoastCalculatorApplication|APPLICATION FAILED" app.log; do sleep 2; done
 ```
+
+---
+
+## TS-6. `spring-retry`는 Spring Boot BOM 미관리 — 버전 명시 필요
+
+**날짜**: 2026-05-23 / 관련 작업: T2-9 외부 호출 안정성
+
+### 증상
+- `build.gradle`에 `implementation 'org.springframework.retry:spring-retry'` 만 추가
+- 컴파일 시 에러:
+  ```
+  Could not find org.springframework.retry:spring-retry:.
+  Required by:
+      root project 'coastCalculator'
+  ```
+
+### 진단
+Spring Boot 4 의 `spring-boot-dependencies` BOM은 `spring-aspects`는 관리하지만 `spring-retry`는 관리 대상이 아님. 그래서 버전 정보 없이 적었더니 Gradle이 어떤 버전을 가져올지 결정 못 함.
+
+```bash
+# 다른 spring 모듈은 BOM 관리 (버전 명시 없이도 OK)
+find ~/.gradle/caches -path "*spring-aspects*" -name "*.jar" | head -2
+# 출력: spring-aspects-7.0.7.jar  ← Spring Framework 7.x 따라옴
+
+# spring-retry는 별도 프로젝트라 명시 필요
+```
+
+### 해결
+버전을 직접 명시:
+```gradle
+implementation 'org.springframework.retry:spring-retry:2.0.12'
+implementation 'org.springframework:spring-aspects'    // 이건 BOM 관리
+```
+
+추가로 `@EnableRetry`를 적용한 `@Configuration` 클래스 필요. 어노테이션만 추가해도 Spring Boot가 알아서 등록해주는 게 아님.
+
+### 교훈
+- Spring Boot **BOM이 모든 Spring 모듈을 관리하지는 않음**. `spring-batch`, `spring-retry`, `spring-cloud-*` 등은 별도 프로젝트라 버전 명시가 필요할 수 있음
+- 의심되면 `./gradlew dependencies --configuration compileClasspath | grep <이름>`로 확인
+- `spring-boot-dependencies` BOM의 관리 목록은 [공식 문서](https://docs.spring.io/spring-boot/docs/current/reference/htmlsingle/#appendix.dependency-versions)에서 확인 가능
+- "Could not find ...:<lib>:." (버전이 빈 콜론) → BOM 미관리 라이브러리 신호
+
+---
+
+## TS-7. `@Retryable` SpEL — `@ConfigurationPropertiesScan` 빈 이름은 SpEL에서 다루기 까다로움
+
+**날짜**: 2026-05-23 / 관련 작업: T2-9
+
+### 증상
+- 설정값(`naver.api.max-attempts`)으로 `@Retryable.maxAttempts`를 동적으로 주입하려고 함
+- 처음 시도: `maxAttemptsExpression = "#{@naverApiProperties.maxAttempts}"`
+- `@ConfigurationPropertiesScan`으로 등록된 record의 bean name은 `<prefix>-<FQCN>` 형태 (예: `naver.api-com.goosepl.coastCalculator.config.NaverApiProperties`) → SpEL에서 `@`로 참조 시 점/하이픈 때문에 깨짐
+
+### 해결
+**SpEL 빈 참조 대신 프로퍼티 플레이스홀더 `${}`를 그대로 쓰기**:
+```java
+@Retryable(
+    retryFor = {...},
+    maxAttemptsExpression = "${naver.api.max-attempts:3}",
+    backoff = @Backoff(
+        delayExpression = "${naver.api.initial-backoff-ms:1000}",
+        multiplier = 2.0
+    )
+)
+```
+
+`maxAttemptsExpression`은 SpEL이지만 `${}` placeholder를 그대로 받아서 환경값으로 치환됨. 기본값(`:3`)도 명시 가능. record bean을 거치지 않아서 더 단순.
+
+### 교훈
+- 설정값을 어노테이션 SpEL에서 쓸 때 첫 번째 선택지는 **`${...}` 플레이스홀더** — 빈 이름이 복잡하면 더 그렇다
+- `#{@beanName.field}`는 빈 이름이 단순할 때만 추천
+- `@Retryable`/`@Scheduled`/`@Cacheable` 등 어노테이션의 `*Expression` 속성은 모두 같은 패턴
+
+---
+
+## TS-8. `@SpringBootTest` 통합 테스트에서 외부 HTTP 의존성 — JDK 내장 `HttpServer` + `@DynamicPropertySource`
+
+**날짜**: 2026-05-23 / 관련 작업: T2-9 retry 통합 테스트
+
+### 증상
+- `@Retryable` 어노테이션은 Spring AOP 프록시로 동작 → 단위 테스트로 검증 불가, 컨테이너 안에서만 활성
+- 외부 API(Naver) 의존이라 WireMock 등 추가 의존성 도입은 부담
+
+### 해결
+**JDK 내장 `com.sun.net.httpserver.HttpServer`** 로 가벼운 stub 서버 + **`@DynamicPropertySource`** 로 포트 동적 주입.
+
+```java
+@SpringBootTest(properties = { "naver.api.mock-enabled=false", ... })
+class RealNaverShoppingClientRetryTest {
+    static HttpServer stubServer;
+    static int stubPort;
+
+    @DynamicPropertySource
+    static void registerBaseUrl(DynamicPropertyRegistry registry) throws IOException {
+        if (stubServer == null) {
+            stubServer = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);  // 0 = 임의 포트
+            stubPort = stubServer.getAddress().getPort();
+            stubServer.createContext("/test/shop", exchange -> { ... });
+            stubServer.start();
+        }
+        registry.add("naver.api.base-url", () -> "http://127.0.0.1:" + stubPort + "/test/shop");
+    }
+}
+```
+
+핵심 포인트:
+- `InetSocketAddress("127.0.0.1", 0)` — 포트 0 = OS 할당 → `getAddress().getPort()`로 실제 포트 획득
+- `@DynamicPropertySource`는 컨텍스트 로딩 **이전**에 호출 → 빈 생성 시점에 환경값 반영됨
+- 응답 JSON은 record 필드를 **빠짐없이** 채워야 (Jackson 디시리얼라이즈 실패 → `RestClientException` → retry 미트리거 + Recover 진입으로 오인됨)
+- AtomicInteger 카운터 + volatile 모드 플래그로 시나리오 전환
+
+### 교훈
+- 외부 HTTP 의존성 테스트는 WireMock 없이도 가능 — JDK `HttpServer`로 충분
+- `@DynamicPropertySource`는 동적 인프라(랜덤 포트, Testcontainers IP) 주입의 표준 방법
+- record 기반 응답 DTO 테스트할 때 stub 응답은 **모든 필드 포함**해야 — 누락 필드가 deserialization 실패 일으키면 디버깅 어렵다

@@ -27,6 +27,10 @@ dependencies {
 	// Spring Boot 4 부터는 starter를 써야 자동설정이 동작 (autoconfigure 모듈 분리)
 	implementation 'org.springframework.boot:spring-boot-starter-flyway'
 	implementation 'org.flywaydb:flyway-mysql'
+	// T2-9: 외부 호출(Naver API) 재시도. spring-retry는 Spring Boot BOM에서 관리 안 됨 → 버전 명시.
+	// AOP 어드바이스 기반이라 spring-aspects 필요 (Spring Boot BOM이 spring-aspects 버전은 관리).
+	implementation 'org.springframework.retry:spring-retry:2.0.12'
+	implementation 'org.springframework:spring-aspects'
 	compileOnly 'org.projectlombok:lombok'
 	runtimeOnly 'com.mysql:mysql-connector-j'
 	annotationProcessor 'org.projectlombok:lombok'
@@ -37,6 +41,8 @@ dependencies {
 	testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
 	testCompileOnly 'org.projectlombok:lombok'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+	// 테스트 전용 임베디드 DB. MySQL 호환 모드. 운영(MySQL) ↔ 테스트(H2) 환경 차이는 인지하고 사용.
+	testRuntimeOnly 'com.h2database:h2'
 	testAnnotationProcessor 'org.projectlombok:lombok'
 }
 

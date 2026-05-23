@@ -171,9 +171,9 @@
 - [x] T1-5. 글로벌 ExceptionHandler + 에러 페이지 — 해결일: 2026-05-21
   - 해결 PR/커밋: feat: Task 6 마무리 (전역 예외 처리 + 에러 페이지)
   - 비고: `web/error/GlobalExceptionHandler`로 AccessDenied/NoResource/IllegalArgument/IllegalState/Generic 매핑. `templates/error/{403,404,500,error}.html` 커스텀 페이지. `server.error.include-message=never`로 운영 안전성 확보.
-- [ ] T1-6. 핵심 분기 통합 테스트 (Security, Repository, Service) — 해결일: -
-  - 해결 PR/커밋: -
-  - 비고: -
+- [x] T1-6. 핵심 분기 통합 테스트 (Security, Repository, Service) — 해결일: 2026-05-22
+  - 해결 PR/커밋: feat: T1-6 — 핵심 통합 테스트 4종 (Security, Repository, Service, LoginAttempt)
+  - 비고: **(1)** 테스트 인프라 — H2(MySQL 호환 모드) testRuntimeOnly + `src/test/resources/application-test.yaml` (Flyway off, `ddl-auto: create-drop`, Naver Mock 강제, 별도 업로드 디렉토리). 운영(MySQL/Flyway) ↔ 테스트(H2/Hibernate) 분리. **(2)** `LoginAttemptServiceTest` — T1-3 정책(5회/15분) 자동 회귀 방지. 시간 의존성은 `Clock` 주입으로 분리해 `MutableClock`으로 시간 진행 시뮬레이션. 13 테스트. **(3)** `RecipeRepositoryTest` — `@DataJpaTest`로 EntityGraph 4개 메서드 검증 + Hibernate Statistics로 쿼리 카운트 측정해 N+1 회귀 방지. 4 테스트. **(4)** `RecipeServiceTest`/`IngredientServiceTest` — Mockito 단위 테스트. `findMine` 소유자 체크, `fetchAndUpsert` 카테고리 보존(invariant), 미존재/blank/skip 분기. 11 테스트. **(5)** `SecurityConfigTest` — `@SpringBootTest`+`MockMvc`로 익명/USER/ADMIN 3주체 × 공개/인증/관리자 경로 권한 룰 16 테스트. **총 56 테스트, 24초 통과.** **미해결**: 컨트롤러 단위 `@WebMvcTest`, `RecipeCostCalculator` 단위 테스트, Testcontainers 기반 MySQL 통합 테스트 — 후속.
 
 ### Tier 2
 
@@ -183,9 +183,9 @@
 - [ ] T2-8. 비동기 / 스케줄러 기반 Naver refetch — 해결일: -
   - 해결 PR/커밋: -
   - 비고: -
-- [ ] T2-9. 외부 호출 타임아웃/리트라이/서킷브레이커 — 해결일: -
-  - 해결 PR/커밋: -
-  - 비고: -
+- [x] T2-9. 외부 호출 타임아웃/리트라이/서킷브레이커 — 해결일: 2026-05-23 (부분 해결)
+  - 해결 PR/커밋: feat: T2-9 — Naver API 타임아웃 + Spring Retry + Recover fallback
+  - 비고: **(1)** `RealNaverShoppingClient`의 `RestClient` 빌더가 `JdkClientHttpRequestFactory` 사용 — `connect-timeout-ms` 5초 / `read-timeout-ms` 10초 명시 (이전: 무한 대기). **(2)** Spring Retry 도입 (`spring-retry:2.0.12` + `spring-aspects`, Spring Boot BOM 미관리이라 버전 명시). `@EnableRetry` 활성, `search()`에 `@Retryable(retryFor={ResourceAccessException, HttpServerErrorException}, maxAttemptsExpression="${naver.api.max-attempts:3}", backoff=@Backoff(delayExpression="${naver.api.initial-backoff-ms:1000}", multiplier=2.0))` — 1s → 2s → 4s 지수 backoff. **(3)** `@Recover`로 모든 재시도 실패 시 빈 리스트 + WARN 로그 fallback — 사용자 UX 보호. 4xx는 retry 미트리거(즉시 실패). **(4)** `NaverApiProperties`에 timeout/retry 필드 추가 + 기본값 보정. **(5)** 통합 테스트(`RealNaverShoppingClientRetryTest`): JDK 내장 HttpServer로 stub Naver 서버 띄워 5xx 영속 실패 → 3회 호출 후 빈 리스트, 5xx 2회 → 3회째 성공, blank 키워드 즉시 빈 리스트 3 케이스 검증. 전체 59 테스트 29초 통과. **미해결**: 서킷브레이커(연속 실패 시 호출 차단)는 Resilience4j 도입 시 후속. 현재는 24h TTL 캐시 + Spring Retry 지수 backoff로 부하 일부 자제.
 - [ ] T2-10. 캐싱 레이어 (Caffeine → Redis) — 해결일: -
   - 해결 PR/커밋: -
   - 비고: -

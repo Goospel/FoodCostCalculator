@@ -50,6 +50,11 @@ naver:
     ttl-hours: 24
     display: 100
     mock-enabled: ${NAVER_MOCK_ENABLED:true}
+    # T2-9: 외부 호출 안정성
+    connect-timeout-ms: 5000          # HTTP connect 5초
+    read-timeout-ms: 10000            # HTTP read 10초
+    max-attempts: 3                   # 총 시도 횟수 (첫 시도 + 재시도 2회)
+    initial-backoff-ms: 1000          # 재시도 backoff 시작값 (1s → 2s → 4s 지수)
 
 storage:
   upload-dir: ${UPLOAD_DIR:./uploads}

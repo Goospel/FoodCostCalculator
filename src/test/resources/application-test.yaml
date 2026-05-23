@@ -1,0 +1,51 @@
+# 테스트 전용 프로파일.
+# 운영(MySQL+Flyway) ↔ 테스트(H2+Hibernate ddl-auto) 환경 분리.
+# H2를 MySQL 호환 모드로 실행해 양쪽 SQL 차이를 최소화.
+
+spring:
+  datasource:
+    url: jdbc:h2:mem:coast_calculator_test;MODE=MySQL;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: create-drop      # 테스트마다 엔티티에서 스키마 자동 생성/삭제
+    properties:
+      hibernate:
+        format_sql: true
+    show-sql: false
+    open-in-view: false
+  flyway:
+    enabled: false               # 운영용 V1__init_schema.sql은 MySQL 전용 문법. 테스트에서는 비활성
+
+# Naver API는 테스트 동안 호출되지 않도록 Mock 모드 고정.
+naver:
+  api:
+    base-url: http://localhost
+    client-id: test
+    client-secret: test
+    ttl-hours: 24
+    display: 10
+    mock-enabled: true
+    connect-timeout-ms: 2000
+    read-timeout-ms: 3000
+    max-attempts: 2
+    initial-backoff-ms: 100
+
+storage:
+  upload-dir: ./build/test-uploads
+
+app:
+  admin:
+    username: admin
+    initial-password: test-admin-pass
+
+affiliate:
+  coupang:
+    tracking-id:
+
+logging:
+  level:
+    org.hibernate.SQL: warn
+    org.hibernate.orm.jdbc.bind: warn
