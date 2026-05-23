@@ -7,6 +7,8 @@
 > 작업 진행 상태 / Task별 상세 / Open Questions / Verification 체크리스트는 [docs/plan.md](docs/plan.md) 참조.
 >
 > **개발 중 만난 함정과 해결 과정**(Spring Boot 4 모듈 분리, Naver API 권한, LazyInit 등): [docs/troubleshooting.md](docs/troubleshooting.md) — **새 라이브러리 추가/낯선 에러 만나면 여기 먼저 확인**.
+>
+> **수익화 모델 결정 / 비즈니스 옵션 비교**: [docs/monetization.md](docs/monetization.md) — 광고/제휴/구독/B2B Pivot 후보까지. 기술 백로그(`improvements.md`)와 분리.
 
 ---
 
