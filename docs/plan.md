@@ -22,7 +22,8 @@
 | T1-3 | 비밀번호 정책 (8자 영숫자) + brute force 방어 (5회/15분) | ✅ |
 | T1-6 | 핵심 통합 테스트 4종 (H2+Mockito+@DataJpaTest+@SpringBootTest, 56 테스트) | ✅ |
 | T2-9 | Naver API 타임아웃(5s/10s) + Spring Retry(3회 지수 backoff) + Recover fallback | ✅ |
-| **다음** | **T2-13 Actuator + 모니터링** (또는 T3-22 후속 GitHub Actions CI/CD) | ⏳ |
+| T3-22 후속 | GitHub Actions CI/CD (`.github/workflows/ci.yml`) — test + GHCR 이미지 푸시 | ✅ |
+| **다음** | **(보류) T2-13 Actuator + 모니터링 — 배포 직전 일괄 처리** | ⏸ |
 
 ---
 
@@ -320,24 +321,35 @@ EC2 비공개 베타용 준비 단계. 실제 EC2 배포는 보류 (사용자가
 
 ---
 
+# T3-22 후속: GitHub Actions CI/CD — 완료 (2026-05-23)
+
+`improvements.md` T3-22 후속 부분 해결.
+
+## 구성
+- **`.github/workflows/ci.yml`** — 두 job:
+  - **`test`**: PR(→ main) + main push에서 실행. JDK 25 Temurin + Gradle build cache + `./gradlew test --no-daemon --stacktrace`. 실패해도 test report 아티팩트 업로드(`if: always()`). 15분 타임아웃.
+  - **`build-and-push`**: main push에서만 실행(`needs: test`). Docker Buildx + GHCR 로그인(`secrets.GITHUB_TOKEN`) + `docker/build-push-action@v6`. `latest` + `sha-<short>` 두 태그 push. GHA 빌드 캐시(`cache-from/to: type=gha`)로 레이어 재사용.
+- **권한**: 워크플로우 기본 `contents: read`만, push job에 `packages: write` 추가 (최소 권한).
+- **Concurrency**: 같은 ref 새 push 시 이전 잡 취소 — PR push만 (main push는 큐잉).
+- **GHCR owner lowercase 처리**: `${{ github.repository_owner }}` (`Goospel`)를 `tr` 로 소문자화 → `ghcr.io/goospel/coastcalculator`. fork/rename 시에도 안전.
+
+## Out of Scope (후속)
+- 배포 자동화 (현재는 이미지 빌드/push까지만, EC2 ssh+compose pull은 수동) — Stage C 또는 EC2 실 배포 시.
+- PR에 코멘트로 결과 표시(코드 커버리지, Gradle 빌드 스캔 등) — 필요해지면.
+- Dependabot/CodeQL — 분리된 워크플로우로 후속.
+
+---
+
 # 다음 단계
 
-## T2-13 Actuator + 모니터링 ← 다음
+## (보류) T2-13 Actuator + 모니터링 — 배포 직전 일괄 처리
 
-`improvements.md` T2-13. 현재 외부에서 "앱이 살아있나? CPU/메모리 어떤지?" 알 수단이 0개.
-
-목표:
-- `spring-boot-starter-actuator` 도입
-- `/actuator/health`, `/actuator/info`, `/actuator/metrics` 노출 (인증)
-- Prometheus 메트릭(`/actuator/prometheus`)은 선택 — micrometer-registry-prometheus 추가 시
-- 헬스 인디케이터 커스텀 (Naver Mock vs Real, DB ping 등)
-
-세부 설계는 작업 시작 시 결정.
+사용자 결정 (2026-05-23): Actuator는 배포 직전에 도입. 지금 도입해도 외부 Prometheus/Grafana가 없으면 가시성 0 그대로라 효용이 약함.
 
 ## 이후 후보 (improvements.md 참조)
 
-- T3-22 후속 GitHub Actions CI/CD (T1-6 + T2-9 테스트 갖춰져 자연 타이밍)
 - T2-8 비동기 / 스케줄러 기반 Naver refetch (T2-9와 짝)
 - T3-17 selectedIngredient UI 완성 (작은 분량, 사용자 가치 명확)
+- T2-7 페이지네이션 (홈/검색 N=20 하드코딩)
 - T1-4 시크릿 외부 저장소 (현재 application-local.yaml 분리만 — 운영급 Vault/AWS Secrets 미적용)
-- (보류) EC2 실제 배포
+- (보류) EC2 실제 배포 + 배포 직전 T2-13 Actuator
