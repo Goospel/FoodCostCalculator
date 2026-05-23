@@ -71,13 +71,18 @@
     </div>
 
     <h3 style="margin-top:24px; font-size:1.1rem">재료 (빈 행은 무시됩니다)</h3>
+    <p style="font-size:0.85rem; color:#6b7280; margin: 4px 0 8px;">
+        "고정 제품"을 선택하면 단가 정책(LOWEST/AVERAGE/HIGHEST)을 무시하고 해당 제품의 단가만 사용합니다.
+        선택한 제품의 카테고리/단위가 행의 입력과 다르면 저장이 거부됩니다.
+    </p>
     <table>
         <thead>
         <tr>
-            <th style="width:5%">#</th>
-            <th style="width:45%">재료 카테고리</th>
-            <th style="width:25%">양</th>
-            <th style="width:25%">단위</th>
+            <th style="width:4%">#</th>
+            <th style="width:24%">재료 카테고리</th>
+            <th style="width:14%">양</th>
+            <th style="width:10%">단위</th>
+            <th style="width:48%">고정 제품 (선택)</th>
         </tr>
         </thead>
         <tbody>
@@ -93,6 +98,17 @@
                 <select th:field="*{ingredients[__${iter.index}__].unit}">
                     <option value="G">g</option>
                     <option value="ML">ml</option>
+                </select>
+            </td>
+            <td>
+                <select th:field="*{ingredients[__${iter.index}__].selectedIngredientId}">
+                    <option value="">자동 (정책 사용)</option>
+                    <optgroup th:each="group : ${ingredientGroups}" th:label="${group.key}">
+                        <option th:each="opt : ${group.value}"
+                                th:value="${opt.id}"
+                                th:text="|${opt.title} — ${opt.mallName} (${#numbers.formatDecimal(opt.pricePerGram, 1, 2)}원/${opt.unit.name() == 'G' ? 'g' : 'ml'})|">
+                        </option>
+                    </optgroup>
                 </select>
             </td>
         </tr>

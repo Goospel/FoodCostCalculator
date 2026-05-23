@@ -1,6 +1,8 @@
 package com.goosepl.coastCalculator.web;
 
 import com.goosepl.coastCalculator.domain.comment.CommentService;
+import com.goosepl.coastCalculator.domain.ingredient.Ingredient;
+import com.goosepl.coastCalculator.domain.ingredient.IngredientService;
 import com.goosepl.coastCalculator.domain.like.RecipeLikeService;
 import com.goosepl.coastCalculator.domain.recipe.Recipe;
 import com.goosepl.coastCalculator.domain.recipe.RecipeService;
@@ -22,6 +24,10 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.security.Principal;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @Controller
 @RequestMapping("/recipes")
@@ -34,6 +40,7 @@ public class RecipeController {
     private final RecipeCostCalculator recipeCostCalculator;
     private final RecipeLikeService recipeLikeService;
     private final CommentService commentService;
+    private final IngredientService ingredientService;
 
     @GetMapping
     public String list(Principal principal, Model model) {
@@ -46,6 +53,7 @@ public class RecipeController {
         if (!model.containsAttribute("recipeForm")) {
             model.addAttribute("recipeForm", RecipeForm.emptyWithRows(FORM_ROWS));
         }
+        model.addAttribute("ingredientGroups", loadIngredientGroups());
         model.addAttribute("mode", "new");
         return "recipes/form";
     }
@@ -57,6 +65,7 @@ public class RecipeController {
                          Principal principal,
                          Model model) {
         if (bindingResult.hasErrors()) {
+            model.addAttribute("ingredientGroups", loadIngredientGroups());
             model.addAttribute("mode", "new");
             return "recipes/form";
         }
@@ -65,6 +74,7 @@ public class RecipeController {
             return "redirect:/recipes/" + id;
         } catch (IllegalArgumentException e) {
             model.addAttribute("errorMessage", e.getMessage());
+            model.addAttribute("ingredientGroups", loadIngredientGroups());
             model.addAttribute("mode", "new");
             return "recipes/form";
         }
@@ -101,6 +111,7 @@ public class RecipeController {
         if (!model.containsAttribute("recipeForm")) {
             model.addAttribute("recipeForm", RecipeForm.fromRecipe(recipe, FORM_ROWS));
         }
+        model.addAttribute("ingredientGroups", loadIngredientGroups());
         model.addAttribute("mode", "edit");
         return "recipes/form";
     }
@@ -115,6 +126,7 @@ public class RecipeController {
                          Model model) {
         if (bindingResult.hasErrors()) {
             model.addAttribute("recipe", recipeService.findMine(id, principal.getName()));
+            model.addAttribute("ingredientGroups", loadIngredientGroups());
             model.addAttribute("mode", "edit");
             return "recipes/form";
         }
@@ -124,6 +136,7 @@ public class RecipeController {
         } catch (IllegalArgumentException e) {
             model.addAttribute("recipe", recipeService.findMine(id, principal.getName()));
             model.addAttribute("errorMessage", e.getMessage());
+            model.addAttribute("ingredientGroups", loadIngredientGroups());
             model.addAttribute("mode", "edit");
             return "recipes/form";
         }
@@ -133,5 +146,18 @@ public class RecipeController {
     public String delete(@PathVariable Long id, Principal principal) {
         recipeService.delete(id, principal.getName());
         return "redirect:/recipes";
+    }
+
+    /**
+     * T3-17: form.html의 selectedIngredientId 드롭다운 데이터.
+     * 카테고리 부여된 ingredient만(findAllVisible), 카테고리 → 목록으로 그루핑.
+     * findAllVisible이 category ASC + pricePerGram ASC로 정렬되어 옴 → LinkedHashMap으로 순서 보존.
+     */
+    private Map<String, List<Ingredient>> loadIngredientGroups() {
+        return ingredientService.findAllVisible().stream()
+                .collect(Collectors.groupingBy(
+                        Ingredient::getCategory,
+                        LinkedHashMap::new,
+                        Collectors.toList()));
     }
 }

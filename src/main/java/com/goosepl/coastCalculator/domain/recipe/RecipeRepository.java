@@ -19,6 +19,8 @@ public interface RecipeRepository extends JpaRepository<Recipe, Long> {
     @EntityGraph(attributePaths = {"user", "ingredients"})
     List<Recipe> findByNameContainingIgnoreCaseOrderByCreatedAtDesc(String keyword, Pageable pageable);
 
-    @EntityGraph(attributePaths = {"user", "ingredients"})
+    // T3-17: detail.html에서 ri.selectedIngredient.title 접근 → ingredients.selectedIngredient 까지 페치 필요
+    // (open-in-view: false라 트랜잭션 밖 LazyInit 방지)
+    @EntityGraph(attributePaths = {"user", "ingredients", "ingredients.selectedIngredient"})
     Optional<Recipe> findWithDetailsById(Long id);
 }

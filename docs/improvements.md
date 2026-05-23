@@ -210,9 +210,9 @@
 - [x] T3-16. 레시피 이미지 + 조리 스텝 + 태그 — 해결일: 2026-05-21 (부분 해결)
   - 해결 PR/커밋: feat: Task 7 — 좋아요 + 댓글(1단계 대댓글) + 레시피 이미지
   - 비고: **이미지 1장(썸네일)** 업로드 완성. `Recipe.imageUrl` 컬럼, `ImageStorageService`/`LocalImageStorageService` (로컬 `./uploads/recipes/`), `WebMvcConfig`로 `/uploads/**` 정적 서빙, multipart 검증(확장자 jpg/jpeg/png/webp, 5MB), edit 폼에서 교체/삭제 가능. **조리 스텝, 태그/난이도, 갤러리(여러 장)**는 미해결.
-- [ ] T3-17. selectedIngredient UI 완성 — 해결일: -
-  - 해결 PR/커밋: -
-  - 비고: -
+- [x] T3-17. selectedIngredient UI 완성 — 해결일: 2026-05-23
+  - 해결 PR/커밋: feat: T3-17 — selectedIngredient UI (고정 제품 드롭다운 + 카테고리/단위 검증)
+  - 비고: 폼 GET 시점에 `IngredientService.findAllVisible()`을 `LinkedHashMap<카테고리, List<Ingredient>>`로 그루핑해 모델 주입(`ingredientGroups`). `form.html` 재료 행에 다섯 번째 칼럼 "고정 제품 (선택)" 추가 — `<select>` 안에 `자동 (정책 사용)` + `<optgroup>` 카테고리별 옵션(라벨: `title — mallName (pricePerGram원/g|ml)`). JS 없음(Open Q #24) 정책 준수. `RecipeIngredientForm.selectedIngredientId` 필드 추가, `from()`에서 기존 selectedIngredient.id 복원. `RecipeService.applyIngredients`에 `resolveSelectedIngredient` 헬퍼 — 선택한 제품이 미존재/카테고리 미부여/카테고리 불일치(대소문자 무시)/단위 불일치 시 IllegalArgumentException으로 저장 거부(사용자 의도 보존, 옵션 1 — 자동 덮어쓰기·무시 X). `detail.html` 재료 테이블에 "고정 제품" 칼럼 추가(selectedIngredient null이면 `— (자동)`). `RecipeRepository.findWithDetailsById` EntityGraph에 `ingredients.selectedIngredient` 추가 — open-in-view: false 환경에서 LazyInitializationException 방지, RecipeRepositoryTest의 쿼리 카운트 ≤3 임계값은 그대로(Hibernate가 LEFT JOIN으로 묶음). RecipeServiceTest +5 — set / 단위 불일치 / 카테고리 불일치 / null 유지 + ingredientRepository 미호출 / 미존재 ID. **총 64 테스트(이전 59 → +5)**.
 - [ ] T3-18. 카테고리 정규화 (마스터 테이블 or synonym) — 해결일: -
   - 해결 PR/커밋: -
   - 비고: -
