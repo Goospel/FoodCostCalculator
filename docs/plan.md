@@ -236,6 +236,7 @@ EC2 비공개 베타용 준비 단계. 실제 EC2 배포는 보류 (사용자가
 | 30 | 잠금 해제 (T1-3) | 자동 — 15분 경과 시 카운터 만료, 관리자 개입 불필요 |
 | 31 | selectedIngredient UI (T3-17) | 폼 GET 시점에 `findAllVisible` 전체를 카테고리별 `<optgroup>`으로 렌더링, JS 없음 |
 | 32 | selectedIngredient 카테고리/단위 불일치 (T3-17) | 서버에서 에러 던지고 저장 거부 (덮어쓰기·무시 X) |
+| 33 | 수익화 모델 큰 방향 | 단기: 광고(AdSense) + 제휴(쿠팡 → 네이버/11번가 확장). 중기: 프리미엄/데이터. 장기 후보: B2B 외식업 SaaS 분리/Pivot 재검토 (6-12개월). 세부는 [docs/monetization.md](monetization.md) |
 
 ---
 
