@@ -225,9 +225,9 @@
 - [ ] T3-21. i18n + 접근성 — 해결일: -
   - 해결 PR/커밋: -
   - 비고: -
-- [x] T3-22. Dockerfile + CI/CD 파이프라인 — 해결일: 2026-05-21 (부분 해결)
-  - 해결 PR/커밋: feat: Stage A-2 — 운영용 Dockerfile + docker-compose.prod
-  - 비고: **Dockerfile** 완성 — 멀티스테이지 (JDK 25 builder → JRE 25 runtime, 비루트 app 사용자, JAVA_OPTS env). **`docker-compose.prod.yml`** — 앱 + MySQL 한 머신 구성, 외부 포트는 앱 80만 노출, 볼륨(`coast-uploads`, `coast-mysql-data`), healthcheck. **`.env.prod.example`** + `.dockerignore` 추가, `.env.prod`는 .gitignore. **CI/CD 파이프라인(GitHub Actions)는 미해결** — Stage C에서.
+- [x] T3-22. Dockerfile + CI/CD 파이프라인 — 해결일: 2026-05-21 + 후속 2026-05-23
+  - 해결 PR/커밋: feat: Stage A-2 — 운영용 Dockerfile + docker-compose.prod / feat: T3-22 후속 — GitHub Actions CI(test + GHCR push)
+  - 비고: **Dockerfile** (2026-05-21) — 멀티스테이지(JDK 25 builder → JRE 25 runtime, 비루트 app, JAVA_OPTS env). **`docker-compose.prod.yml`** — 앱 + MySQL 한 머신, 외부 포트는 앱 80만, 볼륨(`coast-uploads`, `coast-mysql-data`), healthcheck. **`.env.prod.example`** + `.dockerignore` 추가, `.env.prod`는 .gitignore. **CI/CD (2026-05-23)** — `.github/workflows/ci.yml`: `test` job (PR + main push, JDK 25 Temurin + Gradle cache + `./gradlew test --no-daemon --stacktrace`, 15분 timeout, test report 아티팩트 항상 업로드), `build-and-push` job (main push 전용, `needs: test`, Buildx + GHCR 로그인 + `docker/build-push-action@v6`, `latest` + `sha-<short>` 두 태그, GHA 빌드 캐시). 권한 최소화(`contents: read` 기본, push job만 `packages: write`). GHCR owner는 `tr` 로 소문자 정규화해 `Goospel` 같은 대문자 owner에도 안전. **미해결**: 배포 자동화(EC2 ssh + docker compose pull) — 실 배포 시. Dependabot/CodeQL 분리 워크플로우 — 후속.
 
 ---
 
