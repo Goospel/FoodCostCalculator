@@ -32,6 +32,10 @@ naver:
     read-timeout-ms: 3000
     max-attempts: 2
     initial-backoff-ms: 100
+    # T2-8: 스케줄러는 테스트에서 비활성 (테스트 격리 + 실제 Naver 호출 방지)
+    scheduled-refresh-enabled: false
+    scheduled-refresh-interval-ms: 86400000
+    scheduled-refresh-initial-delay-ms: 86400000
 
 storage:
   upload-dir: ./build/test-uploads

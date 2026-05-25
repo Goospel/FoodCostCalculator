@@ -5,8 +5,9 @@ import com.goosepl.coastCalculator.domain.category.CategoryService;
 import com.goosepl.coastCalculator.external.naver.NaverShoppingClient;
 import com.goosepl.coastCalculator.external.naver.dto.NaverProduct;
 import com.goosepl.coastCalculator.external.naver.parser.UnitParser;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -16,13 +17,30 @@ import java.util.Optional;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class IngredientService {
 
     private final IngredientRepository ingredientRepository;
     private final NaverShoppingClient naverClient;
     private final NaverApiProperties properties;
     private final CategoryService categoryService;
+    /**
+     * T2-8: 비동기 refetch 트리거. {@link Lazy}는 IngredientService ↔ IngredientRefetchService
+     * 양방향 의존(refetch가 다시 fetchAndUpsert 호출)의 부팅 초기화 순서 보호.
+     */
+    private final IngredientRefetchService refetchService;
+
+    @Autowired
+    public IngredientService(IngredientRepository ingredientRepository,
+                             NaverShoppingClient naverClient,
+                             NaverApiProperties properties,
+                             CategoryService categoryService,
+                             @Lazy IngredientRefetchService refetchService) {
+        this.ingredientRepository = ingredientRepository;
+        this.naverClient = naverClient;
+        this.properties = properties;
+        this.categoryService = categoryService;
+        this.refetchService = refetchService;
+    }
 
     @Transactional
     public int fetchAndUpsert(String keyword) {
@@ -75,16 +93,24 @@ public class IngredientService {
         return processed;
     }
 
-    @Transactional
+    /**
+     * T2-8: 사용자 조회는 Naver 호출에 절대 블로킹 X.
+     *
+     * - 항상 캐시(stale 허용) 즉시 반환
+     * - stale 또는 빈 결과 감지 시 {@link IngredientRefetchService#triggerAsyncRefetch}로 백그라운드만 트리거
+     * - 다음 사용자 진입 또는 스케줄러 사이클에 신선한 결과 반영
+     *
+     * 이전 동작(블로킹 fetchAndUpsert)은 Naver 장애 시 톰캣 스레드 고갈 위험 — T2-8로 제거.
+     */
+    @Transactional(readOnly = true)
     public List<Ingredient> viewByCategory(String category) {
         if (category == null || category.isBlank()) {
             return List.of();
         }
         List<Ingredient> rows = ingredientRepository.findByCategory(category);
         if (isStale(rows)) {
-            log.info("TTL 만료 또는 빈 결과, refetch 트리거: category={}", category);
-            fetchAndUpsert(category);
-            rows = ingredientRepository.findByCategory(category);
+            log.info("TTL 만료/빈 결과 → 비동기 refetch 트리거(블로킹 X): category={}", category);
+            refetchService.triggerAsyncRefetch(category);
         }
         return rows;
     }

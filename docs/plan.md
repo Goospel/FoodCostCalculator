@@ -28,6 +28,7 @@
 | T3-18 | 카테고리 마스터 — `categories` 테이블 + Flyway V2 + datalist 자동완성 (73 테스트) | ✅ |
 | T2-11 | N+1 점검 후속 — two-step 쿼리(ID Page → IN 절 + EntityGraph) + findMine 강제 초기화 제거 (76 테스트) | ✅ |
 | T3-18.2 | 카테고리 alias/synonym — `category_aliases` + Flyway V3 + 매칭 단계 정규화 + admin UI (95 테스트) | ✅ |
+| T2-8 | 비동기/스케줄러 Naver refetch — viewByCategory 블로킹 제거 + @Async 트리거 + @Scheduled 1h (107 테스트) | ✅ |
 | **다음** | **(보류) T2-13 Actuator + 모니터링 — 배포 직전 일괄 처리** | ⏸ |
 
 ---
@@ -339,6 +340,60 @@ EC2 비공개 베타용 준비 단계. 실제 EC2 배포는 보류 (사용자가
 
 ---
 
+# T2-8: 비동기/스케줄러 기반 Naver refetch — 완료 (2026-05-25)
+
+`improvements.md` T2-8 해결. T2-9 (외부 호출 안정성)와 짝.
+
+## 문제 정리
+기존 `IngredientService.viewByCategory(category)`:
+- 캐시 조회 후 stale(빈 결과 또는 fetched_at 24h 전)이면 **사용자 요청 스레드에서** `fetchAndUpsert` 호출 → Naver 응답까지 대기
+- T2-9로 timeout(5s+10s) + Retry(3회 지수 backoff) 적용했지만, 최악의 경우 **사용자 응답 15s+ 지연** 가능
+- Naver 장애 시 톰캣 스레드 점진적 고갈 위험
+
+## 해결 — 두 갈래 접근
+
+**1. 사용자 요청은 절대 블로킹 X (viewByCategory)**:
+- 캐시(stale 허용) 즉시 반환
+- stale 감지 시 `IngredientRefetchService.triggerAsyncRefetch(category)` 백그라운드 트리거만
+- `@Transactional(readOnly = true)`로 변경 — 외부 호출 안 함
+
+**2. 백그라운드 자동 갱신 (Scheduled)**:
+- `IngredientRefetchService.scheduledRefresh()` `@Scheduled(fixedDelay=1h)`
+- `IngredientRepository.findDistinctStaleCategoriesBefore(threshold)`로 stale 카테고리 일괄 추출 → 각각 trigger
+
+## 변경
+
+### 인프라
+- **`AsyncConfig`** 신규: `@EnableAsync` + `@EnableScheduling` + `ThreadPoolTaskExecutor` 빈 `"naverRefetchExecutor"` (core 2 / max 4 / queue 100 / `DiscardPolicy` — 큐 차면 즉시 빠짐).
+- **application.yaml**: `naver.api.scheduled-refresh-{enabled,interval-ms,initial-delay-ms}` 추가 (기본 enabled / 1h / 1분).
+- **application-test.yaml**: `scheduled-refresh-enabled=false` — 테스트 격리.
+
+### 도메인
+- **`IngredientRefetchService`** 신규:
+  - `triggerAsyncRefetch(category)` `@Async("naverRefetchExecutor")` — `ConcurrentHashMap<String, AtomicBoolean>` 카테고리별 락. 이미 진행 중이면 skip, finally로 항상 해제(예외 시에도). null/blank no-op.
+  - `scheduledRefresh()` `@Scheduled(fixedDelayString="${...:3600000}", initialDelayString="${...:60000}")` — stale category 일괄 trigger. 비활성 플래그(`@Value`로 주입한 `scheduledRefreshEnabled`)면 즉시 return.
+- **`IngredientService`**: `viewByCategory`는 `@Transactional(readOnly=true)`로 변경. 블로킹 `fetchAndUpsert` 호출 제거 → `refetchService.triggerAsyncRefetch(category)`만 트리거 후 캐시 즉시 반환.
+  - 생성자에 `@Lazy IngredientRefetchService` 주입 — 양방향 의존(서비스 → refetch → fetchAndUpsert) 부팅 초기화 순서 보호 (`@RequiredArgsConstructor` 제거하고 명시 생성자).
+- **`IngredientRepository`**: `findDistinctStaleCategoriesBefore(LocalDateTime threshold)` JPQL 쿼리 추가 — category IS NULL 제외 + fetched_at < threshold.
+
+## 의도적 비포함 → 후속
+- **ShedLock (분산 락)**: 멀티 인스턴스 배포 시 `@Scheduled` 중복 실행 방지 필요. 현재 EC2 단일 머신 가정이라 미적용. K8s 전환 시 필수.
+- **카테고리별 우선순위 / Refetch 큐 영속화**: 모든 stale 카테고리를 한 사이클에 trigger — 카테고리 수십 개 넘으면 우선순위 정책 필요해질 수 있음.
+- **빈 결과 사용자 안내 UI**: 처음 카테고리 진입 시 빈 페이지 → "잠시 후 새로고침" 안내 추가는 별도 UI 폴리시.
+- **부팅 직후 초기 prime**: initialDelay 1분 동안은 stale 갱신 안 됨. 부팅 직후 사용자가 stale을 보면 트리거되니 실용상 충분.
+
+## 테스트 (총 107, 이전 T3-18.2 95 → +12)
+- `IngredientRefetchServiceTest` 신규 8:
+  - triggerAsyncRefetch 정상 호출 + 락 해제 / blank no-op / 동시 같은 카테고리 락 / 다른 카테고리 독립 / 예외 시 락 해제
+  - scheduledRefresh disabled=false 즉시 return / stale each trigger / stale 없으면 no-op
+- `IngredientServiceTest` 7 → 11 (+4):
+  - viewByCategory stale 캐시 → 비동기 trigger만, 블로킹 fetch X
+  - fresh 캐시 → trigger 호출 X
+  - 빈 캐시 → 빈 리스트 즉시 + trigger
+  - null/blank → 즉시 빈 리스트 + 어떤 호출도 안 함
+
+---
+
 # T3-18.2: 카테고리 alias/synonym — 완료 (2026-05-25)
 
 `improvements.md` T3-18 비고 — alias 부분도 해결.
@@ -556,9 +611,10 @@ EC2 비공개 베타용 준비 단계. 실제 EC2 배포는 보류 (사용자가
 
 ## 이후 후보 (improvements.md 참조)
 
-- T2-8 비동기 / 스케줄러 기반 Naver refetch (T2-9와 짝)
 - T1-4 시크릿 외부 저장소 (현재 `application-local.yaml` 분리만 — 운영급 Vault/AWS Secrets 미적용, 배포 readiness Tier 1)
 - T3-19 가격 이력 — Freemium / 데이터 API 수익화의 공통 선행 (아래 "수익화 계획" 참조)
+- T2-10 캐싱 레이어 (Caffeine → Redis)
+- T2-12 Optimistic locking (`@Version`)
 - (보류) EC2 실제 배포 + 배포 직전 T2-13 Actuator
 
 ---
