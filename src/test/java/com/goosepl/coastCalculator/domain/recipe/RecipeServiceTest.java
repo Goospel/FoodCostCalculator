@@ -1,5 +1,6 @@
 package com.goosepl.coastCalculator.domain.recipe;
 
+import com.goosepl.coastCalculator.domain.category.CategoryAliasService;
 import com.goosepl.coastCalculator.domain.ingredient.Ingredient;
 import com.goosepl.coastCalculator.domain.ingredient.IngredientRepository;
 import com.goosepl.coastCalculator.domain.ingredient.Unit;
@@ -17,6 +18,8 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 import org.springframework.security.access.AccessDeniedException;
 
 import java.lang.reflect.Field;
@@ -28,12 +31,17 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
 
 /**
- * RecipeService의 소유권 체크 / 미존재 분기 + T3-17 selectedIngredient 검증 단위 테스트.
+ * RecipeService의 소유권 체크 / 미존재 분기 + T3-17/T3-18.2 selectedIngredient 검증 단위 테스트.
+ *
+ * Strictness.LENIENT: categoryAliasService.resolve stub은 모든 테스트에서 공유되는데
+ * 일부 테스트(selectedId null / unknown id)는 호출되지 않음. unused stub 경고를 피하기 위해 lenient.
  */
 @ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
 class RecipeServiceTest {
 
     @Mock
@@ -47,6 +55,9 @@ class RecipeServiceTest {
 
     @Mock
     private ImageStorageService imageStorageService;
+
+    @Mock
+    private CategoryAliasService categoryAliasService;
 
     @InjectMocks
     private RecipeService recipeService;
@@ -72,6 +83,10 @@ class RecipeServiceTest {
                 .name("alice의 레시피")
                 .servings(2)
                 .build();
+
+        // 디폴트 alias 동작: 입력 그대로 반환 (canonical pass-through).
+        // alias 풀이 케이스는 개별 테스트에서 override.
+        given(categoryAliasService.resolve(anyString())).willAnswer(inv -> inv.getArgument(0));
     }
 
     @Test
@@ -227,6 +242,54 @@ class RecipeServiceTest {
         assertThatThrownBy(() -> recipeService.create(form, "alice", null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("선택한 제품을 찾을 수 없습니다");
+    }
+
+    // ---- T3-18.2: alias 풀이로 카테고리 일치 인정 ----
+
+    @Test
+    @DisplayName("create: row가 alias이고 selected.category가 canonical이면 alias 풀이로 통과")
+    void createAcceptsAliasResolvedMatch() {
+        // given: row "박력분", selected.category "밀가루" — alias 풀이로 "밀가루" == "밀가루"
+        Ingredient flour = newIngredient(10L, "밀가루", Unit.G, 1500, BigDecimal.valueOf(1000));
+        given(userRepository.findByUsername("alice")).willReturn(Optional.of(alice));
+        given(ingredientRepository.findById(10L)).willReturn(Optional.of(flour));
+        given(categoryAliasService.resolve("박력분")).willReturn("밀가루");
+        given(categoryAliasService.resolve("밀가루")).willReturn("밀가루");
+        ArgumentCaptor<Recipe> savedRecipe = ArgumentCaptor.forClass(Recipe.class);
+        given(recipeRepository.save(any(Recipe.class))).willAnswer(inv -> inv.getArgument(0));
+
+        RecipeForm form = makeForm("쿠키", 2,
+                row("박력분", BigDecimal.valueOf(200), Unit.G, 10L));
+
+        // when
+        recipeService.create(form, "alice", null);
+
+        // then: 저장은 사용자 입력 "박력분" 그대로 보존, selectedIngredient는 set됨
+        org.mockito.Mockito.verify(recipeRepository).save(savedRecipe.capture());
+        RecipeIngredient ri = savedRecipe.getValue().getIngredients().getFirst();
+        assertThat(ri.getCategoryName()).isEqualTo("박력분");
+        assertThat(ri.getSelectedIngredient()).isNotNull();
+        assertThat(ri.getSelectedIngredient().getId()).isEqualTo(10L);
+    }
+
+    @Test
+    @DisplayName("create: alias 풀이 후에도 다른 canonical이면 IllegalArgumentException")
+    void createRejectsWhenResolvedCategoriesStillDiffer() {
+        // given: row "박력분" → "밀가루", selected.category "설탕" → "설탕". 풀어도 다름
+        Ingredient sugar = newIngredient(11L, "설탕", Unit.G, 1000, BigDecimal.valueOf(500));
+        given(userRepository.findByUsername("alice")).willReturn(Optional.of(alice));
+        given(ingredientRepository.findById(11L)).willReturn(Optional.of(sugar));
+        given(categoryAliasService.resolve("박력분")).willReturn("밀가루");
+        given(categoryAliasService.resolve("설탕")).willReturn("설탕");
+
+        RecipeForm form = makeForm("쿠키", 2,
+                row("박력분", BigDecimal.valueOf(200), Unit.G, 11L));
+
+        assertThatThrownBy(() -> recipeService.create(form, "alice", null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("카테고리");
+
+        org.mockito.Mockito.verify(recipeRepository, org.mockito.Mockito.never()).save(any(Recipe.class));
     }
 
     // ---- helpers ----

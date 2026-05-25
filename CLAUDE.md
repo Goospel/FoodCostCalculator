@@ -56,6 +56,8 @@ config/           SecurityConfig, NaverApiProperties, AffiliateProperties, Retry
 domain/user/      User, Role, UserRepository, UserService, CustomUserDetailsService, DataInitializer,
                   auth/(LoginAttemptService, AuthenticationEventListener)
 domain/ingredient/ Ingredient, Unit, IngredientRepository, IngredientService
+domain/category/  Category, CategoryRepository, CategoryService (T3-18),
+                  CategoryAlias, CategoryAliasRepository, CategoryAliasService (T3-18.2)
 domain/recipe/    Recipe, RecipeIngredient, RecipeRepository, RecipeService,
                   cost/(RecipeCostCalculator, PricingPolicy, RecipeCostResult)
 domain/comment/   Comment, CommentService, ...
@@ -63,7 +65,7 @@ domain/like/      RecipeLike, RecipeLikeService
 external/naver/   NaverShoppingClient (interface), Real/MockNaverShoppingClient, parser/UnitParser
 storage/          ImageStorageService, LocalImageStorageService, StorageProperties
 web/              AuthController, HomeController, IngredientController, RecipeController, ...
-web/admin/        AdminIngredientController
+web/admin/        AdminIngredientController, AdminCategoryAliasController (T3-18.2)
 web/error/        GlobalExceptionHandler
 ```
 
@@ -87,9 +89,15 @@ web/error/        GlobalExceptionHandler
 - 위반 시 `AccessDeniedException` → 커스텀 403.
 
 ## 원가 계산 (`RecipeCostCalculator`)
-- `RecipeIngredient.selectedIngredient != null` → 그 제품 단가만 사용 (정책 무시).
-- null → `IngredientRepository.findByCategoryAndUnit(categoryName, unit)` 후보 → `PricingPolicy` (LOWEST/AVERAGE/HIGHEST)로 단가 결정.
+- `RecipeIngredient.selectedIngredient != null` → 그 제품 단가만 사용 (정책 무시, alias 풀이도 X).
+- null → `CategoryAliasService.resolve(categoryName)` 후 `IngredientRepository.findByCategoryAndUnit(resolved, unit)` 후보 → `PricingPolicy` (LOWEST/AVERAGE/HIGHEST)로 단가 결정.
 - 매칭 0건 → "재료 없음" 표시, 총합 제외, 경고 카운트 노출.
+
+## 카테고리 alias (T3-18.2)
+- **저장은 사용자 의도 그대로 유지** — `RecipeIngredient.categoryName="박력분"`이면 DB에도 "박력분".
+- **매칭 단계에서만 풀어 사용** — `RecipeCostCalculator`/`resolveSelectedIngredient`가 `resolve()` 호출.
+- `resolve(input)` 우선순위: (1) categories.name 있으면 input(canonical 우선) → (2) aliases.alias 있으면 canonical.name → (3) 없으면 input.
+- alias 등록 검증: blank / 자기자신 / canonical과 같은 이름 / 중복 / canonical 미존재 모두 거부.
 
 ## selectedIngredient 검증 (T3-17)
 - 사용자가 "이 제품으로 고정" 선택 시 행 categoryName(대소문자 무시)/unit 일치해야 저장. 불일치/카테고리 미부여/미존재 ID → `IllegalArgumentException`으로 저장 거부 (자동 덮어쓰기·무시 X).

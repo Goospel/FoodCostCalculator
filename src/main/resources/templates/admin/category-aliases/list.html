@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head>
+    <meta charset="UTF-8">
+    <title>카테고리 alias 관리 (관리자)</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 900px; margin: 24px auto; padding: 0 16px; }
+        nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+        h1 { font-size: 1.5rem; }
+        h2 { font-size: 1.1rem; margin-top: 32px; }
+        .btn { padding: 8px 14px; background: #2563eb; color: white; border: none; border-radius: 6px; text-decoration: none; cursor: pointer; }
+        .btn:hover { background: #1d4ed8; }
+        .btn-danger { background: #dc2626; }
+        .btn-danger:hover { background: #b91c1c; }
+        .btn-secondary { background: #6b7280; }
+        table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+        th, td { border-bottom: 1px solid #e5e7eb; padding: 10px 8px; text-align: left; font-size: 0.92rem; }
+        th { background: #f9fafb; }
+        .form-add { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: end; padding: 16px; background: #f9fafb; border-radius: 6px; margin-top: 12px; }
+        .form-add label { display: flex; flex-direction: column; gap: 4px; font-size: 0.9rem; }
+        .form-add input { padding: 8px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 1rem; }
+        .arrow { color: #6b7280; }
+        .flash { padding: 10px; background: #f0fdf4; color: #166534; border-radius: 6px; margin-bottom: 12px; }
+        .help { color: #6b7280; font-size: 0.85rem; margin-top: 8px; }
+        a { color: #2563eb; }
+    </style>
+</head>
+<body>
+<nav>
+    <h1>카테고리 alias 관리</h1>
+    <div>
+        <a th:href="@{/admin/ingredients}">재료 관리</a> |
+        <a th:href="@{/}">홈</a> |
+        <span sec:authentication="name"></span>
+        <form th:action="@{/logout}" method="post" style="display:inline">
+            <button type="submit" class="btn btn-secondary">로그아웃</button>
+        </form>
+    </div>
+</nav>
+
+<div th:if="${flashMessage}" class="flash" th:text="${flashMessage}"></div>
+
+<p style="color:#374151">
+    alias는 사용자가 입력한 비표준 카테고리명(예: <code>박력분</code>)을 표준 카테고리(<code>밀가루</code>)로 풀어주는 매핑입니다.
+    원가 계산 시 매칭 단계에서만 풀고, 저장된 입력값(레시피 재료 카테고리명)은 사용자 의도 그대로 보존합니다.
+</p>
+
+<h2>새 alias 등록</h2>
+<form class="form-add" th:action="@{/admin/category-aliases}" method="post">
+    <label>
+        alias (사용자가 입력하는 비표준 이름)
+        <input type="text" name="alias" placeholder="예: 박력분" required maxlength="100">
+    </label>
+    <label>
+        canonical 카테고리 (어디로 풀지)
+        <input type="text" name="canonical" placeholder="예: 밀가루" required maxlength="100" list="aliasCanonicalOptions">
+    </label>
+    <button type="submit" class="btn">등록</button>
+</form>
+<datalist id="aliasCanonicalOptions">
+    <option th:each="c : ${categoryNames}" th:value="${c}"></option>
+</datalist>
+<p class="help">
+    canonical은 <strong>이미 등록된 카테고리</strong>여야 합니다. 자동완성에서 선택하거나 정확히 입력하세요.<br>
+    alias로 등록할 이름이 이미 canonical 카테고리에 있으면 거부됩니다.
+</p>
+
+<h2>등록된 alias 목록</h2>
+<table>
+    <thead>
+    <tr>
+        <th>ID</th>
+        <th>alias</th>
+        <th></th>
+        <th>canonical</th>
+        <th>등록일</th>
+        <th>액션</th>
+    </tr>
+    </thead>
+    <tbody>
+    <tr th:if="${#lists.isEmpty(aliases)}">
+        <td colspan="6" style="text-align:center; padding:20px; color:#6b7280">
+            아직 등록된 alias가 없습니다.
+        </td>
+    </tr>
+    <tr th:each="a : ${aliases}">
+        <td th:text="${a.id}"></td>
+        <td th:text="${a.alias}"></td>
+        <td class="arrow">→</td>
+        <td th:text="${a.canonical.name}"></td>
+        <td th:text="${#temporals.format(a.createdAt, 'yyyy-MM-dd HH:mm')}"></td>
+        <td>
+            <form th:action="@{/admin/category-aliases/{id}/delete(id=${a.id})}" method="post" style="display:inline"
+                  onsubmit="return confirm('이 alias를 삭제하시겠습니까?')">
+                <button type="submit" class="btn btn-danger">삭제</button>
+            </form>
+        </td>
+    </tr>
+    </tbody>
+</table>
+</body>
+</html>

@@ -1,5 +1,6 @@
 package com.goosepl.coastCalculator.domain.recipe;
 
+import com.goosepl.coastCalculator.domain.category.CategoryAliasService;
 import com.goosepl.coastCalculator.domain.ingredient.Ingredient;
 import com.goosepl.coastCalculator.domain.ingredient.IngredientRepository;
 import com.goosepl.coastCalculator.domain.recipe.dto.RecipeForm;
@@ -27,6 +28,7 @@ public class RecipeService {
     private final UserRepository userRepository;
     private final IngredientRepository ingredientRepository;
     private final ImageStorageService imageStorageService;
+    private final CategoryAliasService categoryAliasService;
 
     // T2-7 + T2-11: 내 레시피 목록 — two-step 쿼리(ID Page → entity fetch)로 in-memory paging 회피
     @Transactional(readOnly = true)
@@ -168,8 +170,13 @@ public class RecipeService {
     }
 
     /**
-     * T3-17: 사용자가 "이 제품으로 고정"으로 특정 Ingredient를 선택한 경우 검증 + 반환.
-     * 카테고리(대소문자 무시)와 단위가 행과 일치해야 함. 불일치 시 IllegalArgumentException으로 저장 거부.
+     * T3-17 + T3-18.2: 사용자가 "이 제품으로 고정"으로 특정 Ingredient를 선택한 경우 검증 + 반환.
+     * 카테고리(대소문자 무시 + alias 풀이)와 단위가 행과 일치해야 함. 불일치 시 IllegalArgumentException으로 저장 거부.
+     *
+     * alias 풀이 (T3-18.2):
+     *   사용자가 행 카테고리에 "박력분"을 적고 선택한 제품의 category가 "밀가루"인 경우,
+     *   resolve("박력분") == resolve("밀가루") == "밀가루"로 같으면 통과시킴.
+     *   둘 다 resolve 후 비교 — 한 쪽이 canonical이고 다른 쪽이 alias여도 일치 인정.
      */
     private Ingredient resolveSelectedIngredient(Long selectedId, String rowCategory, com.goosepl.coastCalculator.domain.ingredient.Unit rowUnit) {
         if (selectedId == null) {
@@ -182,7 +189,9 @@ public class RecipeService {
             throw new IllegalArgumentException(
                     "선택한 제품(" + selected.getTitle() + ")은 카테고리가 부여되지 않아 사용할 수 없습니다");
         }
-        if (!selected.getCategory().equalsIgnoreCase(rowCategory)) {
+        String resolvedRow = categoryAliasService.resolve(rowCategory);
+        String resolvedSelected = categoryAliasService.resolve(selected.getCategory());
+        if (!resolvedSelected.equalsIgnoreCase(resolvedRow)) {
             throw new IllegalArgumentException(
                     "선택한 제품의 카테고리(" + selected.getCategory()
                             + ")가 입력 카테고리(" + rowCategory + ")와 다릅니다");
