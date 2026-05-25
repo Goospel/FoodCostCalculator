@@ -55,6 +55,10 @@ naver:
     read-timeout-ms: 10000            # HTTP read 10초
     max-attempts: 3                   # 총 시도 횟수 (첫 시도 + 재시도 2회)
     initial-backoff-ms: 1000          # 재시도 backoff 시작값 (1s → 2s → 4s 지수)
+    # T2-8: 비동기/스케줄러 refetch
+    scheduled-refresh-enabled: true                  # 스케줄러 활성. 테스트는 false
+    scheduled-refresh-interval-ms: 3600000           # 1시간 = 3,600,000 ms — TTL 24h 대비 보수적
+    scheduled-refresh-initial-delay-ms: 60000        # 부팅 후 1분 뒤 첫 사이클 (워밍업 여유)
 
 storage:
   upload-dir: ${UPLOAD_DIR:./uploads}

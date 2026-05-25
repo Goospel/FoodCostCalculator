@@ -52,10 +52,12 @@ Java 25, Spring Boot 4.0.6, Gradle. Spring Web MVC + Data JPA + Security + Thyme
 # 패키지 구조
 
 ```
-config/           SecurityConfig, NaverApiProperties, AffiliateProperties, RetryConfig, WebMvcConfig
+config/           SecurityConfig, NaverApiProperties, AffiliateProperties, RetryConfig,
+                  AsyncConfig (T2-8 @EnableAsync/@EnableScheduling), WebMvcConfig
 domain/user/      User, Role, UserRepository, UserService, CustomUserDetailsService, DataInitializer,
                   auth/(LoginAttemptService, AuthenticationEventListener)
-domain/ingredient/ Ingredient, Unit, IngredientRepository, IngredientService
+domain/ingredient/ Ingredient, Unit, IngredientRepository, IngredientService,
+                  IngredientRefetchService (T2-8 @Async/@Scheduled)
 domain/category/  Category, CategoryRepository, CategoryService (T3-18),
                   CategoryAlias, CategoryAliasRepository, CategoryAliasService (T3-18.2)
 domain/recipe/    Recipe, RecipeIngredient, RecipeRepository, RecipeService,
@@ -102,8 +104,11 @@ web/error/        GlobalExceptionHandler
 ## selectedIngredient 검증 (T3-17)
 - 사용자가 "이 제품으로 고정" 선택 시 행 categoryName(대소문자 무시)/unit 일치해야 저장. 불일치/카테고리 미부여/미존재 ID → `IllegalArgumentException`으로 저장 거부 (자동 덮어쓰기·무시 X).
 
-## TTL 하이브리드
-- `viewByCategory(c)`: `findByCategory(c)` 반환. 비었거나 `fetchedAt < now - 24h` 있으면 `fetchAndUpsert(c)` 트리거 후 재조회. TTL 24h.
+## TTL 하이브리드 + 비동기 refetch (T2-8)
+- `viewByCategory(c)`: 항상 캐시 즉시 반환 (`@Transactional(readOnly=true)`, Naver 호출 블로킹 X).
+- stale(빈 결과 or `fetchedAt < now - 24h`) 감지 시 `IngredientRefetchService.triggerAsyncRefetch(c)` 백그라운드만 트리거 → 결과는 다음 사용자 진입에 반영.
+- `@Scheduled(fixedDelay=1h)` `scheduledRefresh()`가 stale 카테고리 일괄 갱신 (TTL 24h 대비 보수적).
+- 카테고리별 `ConcurrentHashMap<String, AtomicBoolean>` 락 — 같은 카테고리 중복 refetch 방지. `naverRefetchExecutor` 풀(core 2/max 4/queue 100, DiscardPolicy)로 톰캣 스레드 분리.
 
 ## Naver 키 미발급 대응
 - `NaverShoppingClient` 인터페이스 → Real/Mock 구현. `naver.api.mock-enabled=true`면 Mock 활성.

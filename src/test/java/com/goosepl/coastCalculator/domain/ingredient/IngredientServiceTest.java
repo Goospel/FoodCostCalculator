@@ -45,6 +45,9 @@ class IngredientServiceTest {
     @Mock
     private CategoryService categoryService;
 
+    @Mock
+    private IngredientRefetchService refetchService;
+
     @InjectMocks
     private IngredientService ingredientService;
 
@@ -207,5 +210,78 @@ class IngredientServiceTest {
 
         assertThat(ing.getCategory()).isNull();
         verify(categoryService, never()).ensureExists(any());
+    }
+
+    // ---- T2-8: viewByCategory 비동기 트리거 정책 ----
+
+    @Test
+    @DisplayName("viewByCategory: stale 캐시 — 비동기 trigger만 호출, fetchAndUpsert 블로킹 X")
+    void viewByCategoryWithStaleCacheTriggersAsync() {
+        // given: 캐시에 fetchedAt 25시간 전 row 하나
+        given(naverApiProperties.ttlHours()).willReturn(24);
+        Ingredient stale = Ingredient.builder()
+                .naverProductId("P-1")
+                .title("오래된 밀가루")
+                .category("밀가루")
+                .price(3000)
+                .totalAmount(new java.math.BigDecimal("1000"))
+                .unit(Unit.G)
+                .fetchedAt(java.time.LocalDateTime.now().minusHours(25))
+                .build();
+        given(ingredientRepository.findByCategory("밀가루")).willReturn(List.of(stale));
+
+        // when
+        List<Ingredient> result = ingredientService.viewByCategory("밀가루");
+
+        // then: 즉시 캐시 반환 + 비동기 trigger 호출, 블로킹 fetch X
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0)).isSameAs(stale);
+        verify(refetchService, times(1)).triggerAsyncRefetch("밀가루");
+        verify(naverClient, never()).search(any());          // 블로킹 fetch 없음
+        verify(ingredientRepository, times(1)).findByCategory("밀가루"); // 재조회 안 함
+    }
+
+    @Test
+    @DisplayName("viewByCategory: fresh 캐시 — trigger 호출 X")
+    void viewByCategoryWithFreshCacheDoesNotTrigger() {
+        given(naverApiProperties.ttlHours()).willReturn(24);
+        Ingredient fresh = Ingredient.builder()
+                .naverProductId("P-2")
+                .title("신선한 밀가루")
+                .category("밀가루")
+                .price(3000)
+                .totalAmount(new java.math.BigDecimal("1000"))
+                .unit(Unit.G)
+                .fetchedAt(java.time.LocalDateTime.now().minusHours(1)) // TTL 안쪽
+                .build();
+        given(ingredientRepository.findByCategory("밀가루")).willReturn(List.of(fresh));
+
+        List<Ingredient> result = ingredientService.viewByCategory("밀가루");
+
+        assertThat(result).hasSize(1);
+        verify(refetchService, never()).triggerAsyncRefetch(any());
+        verify(naverClient, never()).search(any());
+    }
+
+    @Test
+    @DisplayName("viewByCategory: 빈 캐시 — 빈 리스트 즉시 반환 + 비동기 trigger")
+    void viewByCategoryWithEmptyCacheTriggersAsync() {
+        given(ingredientRepository.findByCategory("새카테")).willReturn(List.of());
+
+        List<Ingredient> result = ingredientService.viewByCategory("새카테");
+
+        assertThat(result).isEmpty();
+        verify(refetchService, times(1)).triggerAsyncRefetch("새카테");
+        verify(naverClient, never()).search(any());
+    }
+
+    @Test
+    @DisplayName("viewByCategory: null/blank 카테고리 → 즉시 빈 리스트, 어떤 호출도 안 함")
+    void viewByCategoryWithBlankReturnsEmpty() {
+        assertThat(ingredientService.viewByCategory(null)).isEmpty();
+        assertThat(ingredientService.viewByCategory("")).isEmpty();
+        assertThat(ingredientService.viewByCategory("   ")).isEmpty();
+        verify(ingredientRepository, never()).findByCategory(any());
+        verify(refetchService, never()).triggerAsyncRefetch(any());
     }
 }
