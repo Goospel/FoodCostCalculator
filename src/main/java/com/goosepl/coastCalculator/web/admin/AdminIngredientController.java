@@ -2,8 +2,12 @@ package com.goosepl.coastCalculator.web.admin;
 
 import com.goosepl.coastCalculator.domain.category.CategoryService;
 import com.goosepl.coastCalculator.domain.ingredient.Ingredient;
+import com.goosepl.coastCalculator.domain.ingredient.IngredientPriceHistory;
+import com.goosepl.coastCalculator.domain.ingredient.IngredientPriceHistoryRepository;
 import com.goosepl.coastCalculator.domain.ingredient.IngredientService;
 import com.goosepl.coastCalculator.domain.ingredient.dto.CategoryUpdateForm;
+
+import java.util.List;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Controller;
@@ -24,6 +28,7 @@ public class AdminIngredientController {
 
     private final IngredientService ingredientService;
     private final CategoryService categoryService;
+    private final IngredientPriceHistoryRepository priceHistoryRepository;
 
     @GetMapping
     public String list(Model model) {
@@ -75,5 +80,19 @@ public class AdminIngredientController {
     public String delete(@PathVariable Long id) {
         ingredientService.delete(id);
         return "redirect:/admin/ingredients";
+    }
+
+    /**
+     * T3-19: 가격 이력 조회 (admin 전용).
+     * 일반 사용자 공개는 수익화 단계 3(Freemium) 도입 시 무료/유료 라인 결정 후.
+     */
+    @GetMapping("/{id}/history")
+    public String history(@PathVariable Long id, Model model) {
+        Ingredient ingredient = ingredientService.findById(id);
+        List<IngredientPriceHistory> history =
+                priceHistoryRepository.findByIngredientIdOrderByRecordedAtDesc(id);
+        model.addAttribute("ingredient", ingredient);
+        model.addAttribute("history", history);
+        return "admin/ingredients/history";
     }
 }

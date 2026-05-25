@@ -48,6 +48,9 @@ class IngredientServiceTest {
     @Mock
     private IngredientRefetchService refetchService;
 
+    @Mock
+    private IngredientPriceHistoryRepository priceHistoryRepository;
+
     @InjectMocks
     private IngredientService ingredientService;
 
@@ -283,5 +286,94 @@ class IngredientServiceTest {
         assertThat(ingredientService.viewByCategory("   ")).isEmpty();
         verify(ingredientRepository, never()).findByCategory(any());
         verify(refetchService, never()).triggerAsyncRefetch(any());
+    }
+
+    // ---- T3-19: 가격 변동 시 history 적재 ----
+
+    @Test
+    @DisplayName("fetchAndUpsert: 신규 ingredient는 무조건 history 적재 (시작 시점)")
+    void newIngredientAlwaysRecordsHistory() {
+        NaverProduct fresh = product("P-NEW", "신상품 설탕 500g", 2000);
+        given(naverClient.search("설탕")).willReturn(List.of(fresh));
+        given(ingredientRepository.findByNaverProductId("P-NEW")).willReturn(Optional.empty());
+        given(ingredientRepository.save(any(Ingredient.class))).willAnswer(inv -> inv.getArgument(0));
+
+        ingredientService.fetchAndUpsert("설탕");
+
+        verify(priceHistoryRepository, times(1)).save(any(IngredientPriceHistory.class));
+    }
+
+    @Test
+    @DisplayName("fetchAndUpsert: 기존 ingredient + 가격 변동 → history 적재")
+    void existingIngredientWithPriceChangeRecordsHistory() {
+        NaverProduct refreshed = product("P-OLD", "오뚜기 밀가루 1kg", 3500); // 새 가격
+        given(naverClient.search("밀가루")).willReturn(List.of(refreshed));
+        Ingredient existing = Ingredient.builder()
+                .naverProductId("P-OLD")
+                .title("오뚜기 밀가루 1kg")
+                .category("밀가루")
+                .price(3000)  // ← 기존 가격 (다름)
+                .totalAmount(new java.math.BigDecimal("1000"))
+                .unit(Unit.G)
+                .image("img.jpg")
+                .mallName("mall")
+                .link("link")
+                .fetchedAt(java.time.LocalDateTime.now().minusDays(1))
+                .build();
+        given(ingredientRepository.findByNaverProductId("P-OLD")).willReturn(Optional.of(existing));
+
+        ingredientService.fetchAndUpsert("밀가루");
+
+        verify(priceHistoryRepository, times(1)).save(any(IngredientPriceHistory.class));
+        assertThat(existing.getPrice()).isEqualTo(3500); // 가격 갱신됨
+    }
+
+    @Test
+    @DisplayName("fetchAndUpsert: 기존 ingredient + 가격 동일 → history 적재 X (옵션 B)")
+    void existingIngredientWithSamePriceSkipsHistory() {
+        NaverProduct samePrice = product("P-OLD", "오뚜기 밀가루 1kg", 3000); // 같은 가격
+        given(naverClient.search("밀가루")).willReturn(List.of(samePrice));
+        Ingredient existing = Ingredient.builder()
+                .naverProductId("P-OLD")
+                .title("오뚜기 밀가루 1kg")
+                .category("밀가루")
+                .price(3000)  // ← 같음
+                .totalAmount(new java.math.BigDecimal("1000"))
+                .unit(Unit.G)
+                .image("img.jpg")
+                .mallName("mall")
+                .link("link")
+                .fetchedAt(java.time.LocalDateTime.now().minusDays(1))
+                .build();
+        given(ingredientRepository.findByNaverProductId("P-OLD")).willReturn(Optional.of(existing));
+
+        ingredientService.fetchAndUpsert("밀가루");
+
+        verify(priceHistoryRepository, never()).save(any(IngredientPriceHistory.class));
+    }
+
+    @Test
+    @DisplayName("fetchAndUpsert: price는 같지만 totalAmount 다름 → pricePerGram 변동이라 적재")
+    void existingIngredientWithDifferentTotalAmountRecordsHistory() {
+        // 같은 price 3000인데 totalAmount가 1000g → 1500g로 바뀌면 pricePerGram이 3.0 → 2.0
+        NaverProduct changedSize = product("P-OLD", "오뚜기 밀가루 1.5kg", 3000);
+        given(naverClient.search("밀가루")).willReturn(List.of(changedSize));
+        Ingredient existing = Ingredient.builder()
+                .naverProductId("P-OLD")
+                .title("오뚜기 밀가루 1kg")
+                .category("밀가루")
+                .price(3000)
+                .totalAmount(new java.math.BigDecimal("1000"))  // ← 기존
+                .unit(Unit.G)
+                .image("img.jpg")
+                .mallName("mall")
+                .link("link")
+                .fetchedAt(java.time.LocalDateTime.now().minusDays(1))
+                .build();
+        given(ingredientRepository.findByNaverProductId("P-OLD")).willReturn(Optional.of(existing));
+
+        ingredientService.fetchAndUpsert("밀가루");
+
+        verify(priceHistoryRepository, times(1)).save(any(IngredientPriceHistory.class));
     }
 }

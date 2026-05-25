@@ -30,6 +30,7 @@
 | T3-18.2 | 카테고리 alias/synonym — `category_aliases` + Flyway V3 + 매칭 단계 정규화 + admin UI (95 테스트) | ✅ |
 | T2-8 | 비동기/스케줄러 Naver refetch — viewByCategory 블로킹 제거 + @Async 트리거 + @Scheduled 1h (107 테스트) | ✅ |
 | T1-4 | 시크릿 외부화 정책 강화 — 운영 프로파일 + ProductionSecretsValidator + 운영 가이드 (119 테스트) | ✅ |
+| T3-19 | 가격 이력 — Flyway V4 + `ingredient_price_history` + 변동 시 적재 + admin UI (123 테스트) | ✅ |
 | **다음** | **(보류) T2-13 Actuator + 모니터링 — 배포 직전 일괄 처리** | ⏸ |
 
 ---
@@ -338,6 +339,53 @@ EC2 비공개 베타용 준비 단계. 실제 EC2 배포는 보류 (사용자가
   - 5xx 영속 실패 → 3회 호출 후 Recover 빈 리스트
   - blank 키워드 즉시 빈 리스트 (네트워크 호출 X)
 - ✅ **전체 59 테스트 29초 통과**
+
+---
+
+# T3-19: 가격 이력 (IngredientPriceHistory) — 완료 (2026-05-25)
+
+`improvements.md` T3-19 해결. 수익화 단계 3(Freemium 차트) + 단계 4(데이터 라이선싱)의 공통 선행. **누적 시간이 필요한 항목**이라 일찍 착수해서 데이터 모으기.
+
+## 정책 결정
+
+사용자 선택 (2026-05-25):
+- **적재 정책 B**: 가격 변동(pricePerGram BigDecimal.compareTo != 0) 시에만 적재. 신규 ingredient는 첫 fetch 시 무조건 적재 (시작 시점)
+- **노출 X**: admin만(`/admin/ingredients/{id}/history`). 일반 사용자 공개는 수익화 단계 3 진입 시 무료/유료 라인 결정 후
+
+옵션 A(모든 fetch 적재) 거부 — 데이터 중복 + 매시간 스케줄러로 인한 누적 부담.
+옵션 C(변동 + 하루 1회 강제) 거부 — 절충안의 복잡도 ↑.
+
+## 변경
+
+### 데이터
+- **`V4__ingredient_price_history.sql`** — `ingredient_price_history(id, ingredient_id FK CASCADE, naver_product_id snapshot, price, total_amount, unit, price_per_gram, recorded_at)` + 인덱스 `(ingredient_id, recorded_at DESC)`. 기존 ingredients 백필 (시작 시점 = ingredients.fetched_at).
+
+### 도메인
+- **`IngredientPriceHistory`** 엔티티: `@ManyToOne(LAZY)` ingredient, `naverProductId` snapshot(감사용), 가격/용량/단위/단가/recordedAt. 정적 팩토리 `snapshotOf(Ingredient, recordedAt)`.
+- **`IngredientPriceHistoryRepository`**: `findByIngredientIdOrderByRecordedAtDesc(id)` + `findByIngredientIdAndRecordedAtBetweenOrderByRecordedAtAsc(id, from, to)` (후속 차트/리포트).
+
+### 통합 (IngredientService.fetchAndUpsert)
+- 기존 ingredient: 갱신 직전 `pricePerGram` 백업 → `refreshFromNaver` 후 비교 (`compareTo != 0`) → 다르면 `priceHistoryRepository.save(snapshotOf(...))`
+- 신규 ingredient: `save` 후 무조건 history 적재 (시작 시점)
+- pricePerGram 비교라 **price 같지만 totalAmount 변동** 케이스(예: 1kg → 1.5kg)도 적재됨
+
+### Admin UI
+- **`GET /admin/ingredients/{id}/history`**: 표 형식 (최신순). 이전 행과 비교한 단가 차이(`+` 빨강 / `-` 초록 / `— (최초)` 회색) 표시.
+- `admin/ingredients/list.html`에 "이력" 링크 추가.
+
+## 의도적 비포함 → 후속
+- **일반 사용자 공개**: 수익화 단계 3(Freemium) 도입 시 무료/유료 라인 결정 후. 현재는 admin만.
+- **차트 시각화**: 표만 제공. JS 없음 정책상 향후 SVG 정적 생성 또는 별도 라이브러리 도입 PR.
+- **기간 필터 UI**: 기본은 전체. 데이터 누적 후 1주/1개월/1년 필터 추가 가능.
+- **카테고리별 평균 가격 추이**: 단일 ingredient만. 카테고리 단위 통계는 후속(데이터 라이선싱과 연결).
+- **데이터 보존 정책 / archival**: 무한 누적. 1년+ 누적 시 partition 또는 cold storage 검토.
+
+## 테스트 (총 123, 이전 T1-4 119 → +4)
+- `IngredientServiceTest` +4:
+  - 신규 ingredient는 무조건 history 적재
+  - 기존 + price 변동 → 적재
+  - 기존 + 동일 price → 적재 X (옵션 B 검증)
+  - price 같지만 totalAmount 다름 → pricePerGram 변동이라 적재 (BigDecimal.compareTo 동작 검증)
 
 ---
 
@@ -670,7 +718,6 @@ EC2 비공개 베타용 준비 단계. 실제 EC2 배포는 보류 (사용자가
 
 ## 이후 후보 (improvements.md 참조)
 
-- T3-19 가격 이력 — Freemium / 데이터 API 수익화의 공통 선행 (아래 "수익화 계획" 참조)
 - T2-10 캐싱 레이어 (Caffeine → Redis)
 - T2-12 Optimistic locking (`@Version`)
 - T3-15 후속 — 즐겨찾기 / 팔로우 / 작성자 프로필
