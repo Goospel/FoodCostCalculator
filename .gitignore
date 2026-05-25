@@ -50,3 +50,6 @@ uploads/
 .env.prod
 .env.production
 .env.local
+
+### PR 본문 임시 파일 (TS-11 — gh pr create/edit --body-file 용 UTF-8 임시) ###
+.pr-body*.tmp.md
