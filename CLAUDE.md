@@ -24,6 +24,11 @@
 1. **항상** `gh pr list --repo Goospel/FoodCostCalculator --state all --limit 10` 으로 **다음 PR 번호 + 진행 중 PR 유무** 확인.
 2. PR 본문 또는 머지 메시지에 "이번 PR이 #N" 식으로 번호 명시.
 3. 새 작업은 항상 **main 최신화 → 새 브랜치**(`feat/...`, `docs/...`, `fix/...`).
+4. **OPEN PR이 이미 있는데 새 PR이 `docs/plan.md` 또는 `docs/improvements.md`를 만질 거면** — 두 PR의 진행 추적 영역(진행 상태 표 / "다음 단계" 섹션 / "이후 후보" 큐)이 같아 거의 100% 충돌. 우선순위:
+   - **(권장)** OPEN PR 먼저 머지 후 main pull → 새 작업 시작
+   - 시간 급하면 OPEN PR을 base branch로 새 PR 생성 (stacked PR — `gh pr create --base feat/xxx`)
+   - 둘 다 안 되면 main 기반으로 진행하되 **rebase + 수동 충돌 해결 각오** (이전 사례: [troubleshooting TS-12](docs/troubleshooting.md))
+   - 코드 변경은 보통 서로 다른 파일이라 충돌 없음 — 문서만 주의
 
 ## 에러/낯선 동작 만났을 때
 1. **`docs/troubleshooting.md` 먼저 확인**. 같은/비슷한 TS-N이 있는지.

@@ -495,3 +495,59 @@ $body | & gh pr create --body-file -
 - stdin pipe(`--body-file -`)는 인자 쪼개짐은 해결하지만 **인코딩 손실은 해결 못 함**
 - "명령이 성공"과 "결과물이 정상"은 다름 — 자동화 후 **반드시 `gh pr view`로 raw 본문 검증**
 - 한국어 외에도 emoji, em-dash, smart quote 등 non-ASCII 전부 영향. ASCII-only면 두 증상 다 잠복
+
+---
+
+## TS-12. 동시 OPEN PR이 `plan.md`/`improvements.md` 같이 만지면 거의 100% 충돌
+
+**날짜**: 2026-05-25 / 관련 작업: PR #6 (T3-18) + PR #7 (T2-11) 동시 진행
+
+### 증상
+- PR #6 (T3-18 카테고리 마스터) OPEN 중에 PR #7 (T2-11 N+1)을 main 기반으로 새 브랜치 시작
+- PR #6 머지 후 PR #7을 `git rebase origin/main`
+- `docs/plan.md` 3곳에서 conflict marker:
+  - **진행 상태 표** (둘 다 새 줄 추가)
+  - **새 섹션** (둘 다 `# T2-7 페이지네이션` 위에 새 섹션 삽입)
+  - **이후 후보 큐** (한쪽이 항목 제거, 다른쪽이 다른 항목 추가)
+- `docs/improvements.md`는 자동 머지 성공 (각자 다른 줄을 만져서)
+- 코드 파일은 충돌 0건 (서로 다른 영역)
+
+### 진단
+- `plan.md`의 **진행 상태 표 / 새 섹션 / 이후 후보**는 거의 모든 PR이 만지는 영역 — 동시 진행 시 충돌 필연
+- `improvements.md`의 Tier 표 항목별 체크박스는 PR마다 다른 줄을 만지면 자동 머지 가능
+- 코드는 보통 서로 다른 도메인을 만져 충돌 드묾
+
+### 해결
+
+**rebase + 수동 충돌 해결 흐름**:
+```bash
+git checkout feat/your-branch
+git fetch origin
+git rebase origin/main
+# CONFLICT in docs/plan.md → 파일 열어서 <<<<<<<, =======, >>>>>>> 마커 찾기
+
+# 각 충돌 영역마다:
+#  - 진행 상태 표: 두 PR의 새 줄을 모두 보존, 테스트 카운트는 합계로 갱신
+#  - 새 섹션: 두 섹션 모두 보존, 구분선(---)으로 분리
+#  - 이후 후보 큐: 머지된 PR이 추가한 항목은 보존, 내 PR로 완료된 항목은 제거
+
+git add docs/plan.md docs/improvements.md
+git rebase --continue
+./gradlew test  # 테스트 카운트 합산이 맞는지 검증
+git push --force-with-lease origin feat/your-branch
+```
+
+**검증**: `gh pr view <N> --json mergeable,mergeStateStatus` 로 `mergeable: MERGEABLE` 확인 (CI 진행 중엔 `mergeStateStatus: UNSTABLE`이지만 머지 자체는 가능).
+
+### 예방 (CLAUDE.md "PR 만들기 전" 규칙 #4로 명문화)
+
+새 PR이 `plan.md`/`improvements.md`를 만질 거면 우선순위:
+1. **(권장)** OPEN PR 먼저 머지 후 main pull → 새 작업 시작
+2. 시간 급하면 OPEN PR을 base branch로 새 PR 생성 (stacked PR — `gh pr create --base feat/xxx`)
+3. 둘 다 안 되면 main 기반 + 위 rebase 흐름 각오
+
+### 교훈
+- **진행 추적 문서는 동시 PR의 천적**. 코드는 모듈별로 분리되지만 문서는 한 곳에 누적되니까
+- `improvements.md` 같이 한 줄짜리 항목 체크박스는 비교적 안전, `plan.md`의 마크다운 표/섹션은 충돌 자석
+- `--force-with-lease`는 `--force`보다 안전 — 다른 사람이 푸시한 게 있으면 거절. 혼자 작업하는 PR에서도 디폴트로 쓸 것
+- `mergeStateStatus: UNSTABLE` 자체는 머지 차단 아님 — CI 진행 중일 때 잠시 나오는 상태. `mergeable: MERGEABLE`이면 안전
