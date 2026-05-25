@@ -8,13 +8,12 @@ import com.goosepl.coastCalculator.domain.user.User;
 import com.goosepl.coastCalculator.domain.user.UserRepository;
 import com.goosepl.coastCalculator.storage.ImageStorageService;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
-
-import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -25,24 +24,27 @@ public class RecipeService {
     private final IngredientRepository ingredientRepository;
     private final ImageStorageService imageStorageService;
 
+    // T2-7: 내 레시피 목록 페이징
     @Transactional(readOnly = true)
-    public List<Recipe> findMyRecipes(String username) {
+    public Page<Recipe> findMyRecipes(String username, Pageable pageable) {
         User user = loadUser(username);
-        return recipeRepository.findByUserOrderByUpdatedAtDesc(user);
+        return recipeRepository.findByUserOrderByUpdatedAtDesc(user, pageable);
     }
 
+    // T2-7: 홈 페이지 최근 레시피 페이징
     @Transactional(readOnly = true)
-    public List<Recipe> findRecent(int limit) {
-        return recipeRepository.findAllByOrderByCreatedAtDesc(PageRequest.of(0, limit));
+    public Page<Recipe> findRecent(Pageable pageable) {
+        return recipeRepository.findAllByOrderByCreatedAtDesc(pageable);
     }
 
+    // T2-7: 검색 결과 페이징. blank 키워드는 findRecent와 동일 결과
     @Transactional(readOnly = true)
-    public List<Recipe> searchByName(String keyword, int limit) {
+    public Page<Recipe> searchByName(String keyword, Pageable pageable) {
         if (keyword == null || keyword.isBlank()) {
-            return findRecent(limit);
+            return findRecent(pageable);
         }
         return recipeRepository.findByNameContainingIgnoreCaseOrderByCreatedAtDesc(
-                keyword.trim(), PageRequest.of(0, limit));
+                keyword.trim(), pageable);
     }
 
     @Transactional(readOnly = true)

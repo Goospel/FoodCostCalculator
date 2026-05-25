@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jpa.test.autoconfigure.TestEntityManager;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
@@ -19,7 +20,6 @@ import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.PersistenceUnit;
 
 import java.math.BigDecimal;
-import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -117,7 +117,7 @@ class RecipeRepositoryTest {
     }
 
     @Test
-    @DisplayName("findAllByOrderByCreatedAtDesc: 최신순 + user/ingredients EntityGraph")
+    @DisplayName("findAllByOrderByCreatedAtDesc: 최신순 + user/ingredients EntityGraph + Page 메타데이터")
     void findAllRecentWithEntityGraph() {
         User userA = persistUser("alice");
         User userB = persistUser("bob");
@@ -127,17 +127,43 @@ class RecipeRepositoryTest {
         em.clear();
         statistics().clear();
 
-        List<Recipe> recent = recipeRepository.findAllByOrderByCreatedAtDesc(PageRequest.of(0, 10));
+        Page<Recipe> recent = recipeRepository.findAllByOrderByCreatedAtDesc(PageRequest.of(0, 10));
 
-        assertThat(recent).hasSize(3);
+        assertThat(recent.getContent()).hasSize(3);
+        assertThat(recent.getTotalElements()).isEqualTo(3);
+        assertThat(recent.getTotalPages()).isEqualTo(1);
         // user 필드가 LazyInit 없이 접근 가능
-        assertThat(recent).allMatch(r -> r.getUser().getUsername() != null);
+        assertThat(recent.getContent()).allMatch(r -> r.getUser().getUsername() != null);
         // ingredients 도 함께 로드
-        assertThat(recent).allMatch(r -> r.getIngredients() != null);
+        assertThat(recent.getContent()).allMatch(r -> r.getIngredients() != null);
     }
 
     @Test
-    @DisplayName("findByNameContainingIgnoreCase: 부분 일치 + 대소문자 무시")
+    @DisplayName("findAllByOrderByCreatedAtDesc: 페이지 크기/넘어가는 페이지 메타데이터")
+    void findAllRecentPaging() {
+        User user = persistUser("alice");
+        // 5개 생성 → size=2 → totalPages=3
+        for (int i = 0; i < 5; i++) {
+            persistRecipe(user, "레시피 " + i, "밀가루");
+        }
+        em.clear();
+
+        Page<Recipe> page0 = recipeRepository.findAllByOrderByCreatedAtDesc(PageRequest.of(0, 2));
+        assertThat(page0.getContent()).hasSize(2);
+        assertThat(page0.getTotalElements()).isEqualTo(5);
+        assertThat(page0.getTotalPages()).isEqualTo(3);
+        assertThat(page0.hasNext()).isTrue();
+        assertThat(page0.hasPrevious()).isFalse();
+
+        Page<Recipe> page2 = recipeRepository.findAllByOrderByCreatedAtDesc(PageRequest.of(2, 2));
+        assertThat(page2.getContent()).hasSize(1);
+        assertThat(page2.hasNext()).isFalse();
+        assertThat(page2.hasPrevious()).isTrue();
+        assertThat(page2.getNumber()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("findByNameContainingIgnoreCase: 부분 일치 + 대소문자 무시 + Page 반환")
     void searchByNameIgnoresCase() {
         User user = persistUser("alice");
         persistRecipe(user, "김치찌개", "김치");
@@ -145,28 +171,30 @@ class RecipeRepositoryTest {
         persistRecipe(user, "TOMATO PASTA", "토마토");
         em.clear();
 
-        List<Recipe> kimchi = recipeRepository
+        Page<Recipe> kimchi = recipeRepository
                 .findByNameContainingIgnoreCaseOrderByCreatedAtDesc("김치", PageRequest.of(0, 10));
-        assertThat(kimchi)
+        assertThat(kimchi.getContent())
                 .extracting(Recipe::getName)
                 .containsExactlyInAnyOrder("김치찌개");
+        assertThat(kimchi.getTotalElements()).isEqualTo(1);
 
-        List<Recipe> jjigae = recipeRepository
+        Page<Recipe> jjigae = recipeRepository
                 .findByNameContainingIgnoreCaseOrderByCreatedAtDesc("찌개", PageRequest.of(0, 10));
-        assertThat(jjigae)
+        assertThat(jjigae.getContent())
                 .extracting(Recipe::getName)
                 .containsExactlyInAnyOrder("김치찌개", "된장찌개");
+        assertThat(jjigae.getTotalElements()).isEqualTo(2);
 
         // 대소문자 무시
-        List<Recipe> caseInsensitive = recipeRepository
+        Page<Recipe> caseInsensitive = recipeRepository
                 .findByNameContainingIgnoreCaseOrderByCreatedAtDesc("tomato", PageRequest.of(0, 10));
-        assertThat(caseInsensitive)
+        assertThat(caseInsensitive.getContent())
                 .extracting(Recipe::getName)
                 .containsExactly("TOMATO PASTA");
     }
 
     @Test
-    @DisplayName("findByUserOrderByUpdatedAtDesc: 본인 레시피만 반환 + ingredients EntityGraph")
+    @DisplayName("findByUserOrderByUpdatedAtDesc: 본인 레시피만 반환 + ingredients EntityGraph + Page")
     void findByUserReturnsOnlyMine() {
         User alice = persistUser("alice");
         User bob = persistUser("bob");
@@ -175,13 +203,15 @@ class RecipeRepositoryTest {
         persistRecipe(alice, "alice의 레시피 2", "소금", "후추");
         em.clear();
 
-        List<Recipe> aliceRecipes = recipeRepository.findByUserOrderByUpdatedAtDesc(alice);
+        Page<Recipe> aliceRecipes = recipeRepository
+                .findByUserOrderByUpdatedAtDesc(alice, PageRequest.of(0, 10));
 
-        assertThat(aliceRecipes).hasSize(2);
-        assertThat(aliceRecipes)
+        assertThat(aliceRecipes.getContent()).hasSize(2);
+        assertThat(aliceRecipes.getTotalElements()).isEqualTo(2);
+        assertThat(aliceRecipes.getContent())
                 .extracting(Recipe::getName)
                 .containsExactlyInAnyOrder("alice의 레시피 1", "alice의 레시피 2");
         // ingredients EntityGraph 동작
-        assertThat(aliceRecipes).allMatch(r -> r.getIngredients() != null && !r.getIngredients().isEmpty());
+        assertThat(aliceRecipes.getContent()).allMatch(r -> r.getIngredients() != null && !r.getIngredients().isEmpty());
     }
 }
