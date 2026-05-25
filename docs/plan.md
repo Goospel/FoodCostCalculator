@@ -1,6 +1,6 @@
 # coastCalculator — 작업 계획 / 진행 상태
 
-안정적인 아키텍처·도메인·규칙은 [CLAUDE.md](../CLAUDE.md) 참조. 트러블슈팅 기록은 [troubleshooting.md](troubleshooting.md), 배포 readiness 백로그는 [improvements.md](improvements.md). 이 문서는 **Task 진행 상태, Task별 상세, Open Questions, Verification 체크리스트** 등 진행하면서 갱신되는 내용만 담음.
+안정적인 아키텍처·도메인·규칙은 [CLAUDE.md](../CLAUDE.md) 참조. 트러블슈팅 기록은 [troubleshooting.md](troubleshooting.md), 배포 readiness 백로그는 [improvements.md](improvements.md), 수익화 결정 근거/철학은 [monetization.md](monetization.md). 이 문서는 **Task 진행 상태, Task별 상세, Open Questions, Verification 체크리스트, 수익화 진행 추적** 등 진행하면서 갱신되는 내용만 담음.
 
 ---
 
@@ -557,6 +557,56 @@ EC2 비공개 베타용 준비 단계. 실제 EC2 배포는 보류 (사용자가
 ## 이후 후보 (improvements.md 참조)
 
 - T2-8 비동기 / 스케줄러 기반 Naver refetch (T2-9와 짝)
-- T1-4 시크릿 외부 저장소 (배포 readiness Tier 1)
-- T1-4 시크릿 외부 저장소 (현재 application-local.yaml 분리만 — 운영급 Vault/AWS Secrets 미적용)
+- T1-4 시크릿 외부 저장소 (현재 `application-local.yaml` 분리만 — 운영급 Vault/AWS Secrets 미적용, 배포 readiness Tier 1)
+- T3-19 가격 이력 — Freemium / 데이터 API 수익화의 공통 선행 (아래 "수익화 계획" 참조)
 - (보류) EC2 실제 배포 + 배포 직전 T2-13 Actuator
+
+---
+
+# 수익화 계획
+
+자세한 결정 근거와 **의도적으로 안 하는 것** / **핵심 철학**은 [monetization.md](monetization.md) 참조. 여기서는 **진행 추적 + 기술 백로그와의 종속 관계**만 다룬다.
+
+## 단계별 진행 상태
+
+| 단계 | 모델 | 상태 | 시점 / 메모 |
+|---|---|:---:|---|
+| 0 | 쿠팡 파트너스 (`AffiliateLinkBuilder`, ingredient 목록의 "쿠팡 검색" 컬럼) | ✅ | Stage A-3 완료 (2026-05-21) |
+| 1 | Google AdSense (광고 영역 제한 룰 준수) | ⏳ 대기 | 콘텐츠/트래픽 누적 후 |
+| 2 | 제휴 확장 — 네이버 쇼핑 페이 → 11번가 → (선택) 마켓컬리 | ⏳ 대기 | AdSense와 병행 |
+| 3 | Freemium 프리미엄 구독 (월 2,900~4,900원) | 🤔 보류 | MAU 5,000 + 차별화 기능 (T3-19) 선행 |
+| 4 | 데이터 라이선싱 / API (B2B 식자재 가격 시계열) | 🤔 보류 | T3-19 12개월 누적 + T3-20 선행 |
+| ∞ | B2B 외식업 SaaS — 별도 제품 분리 가능성 | 📌 검토 | 6-12개월 뒤 정기 리뷰 |
+
+## 선행 종속 (각 단계 활성화 조건)
+
+| 단계 | 기술 백로그 선행 (improvements.md) | 비기술 선행 |
+|---|---|---|
+| **1 AdSense** | — (광고 영역 위치 결정만) | 트래픽 누적 / 개인정보처리방침 정비 / 광고 표시 명시 (M1, M2) |
+| **2 제휴 확장** | `AffiliateLinkBuilder` 인터페이스 추출 → `NaverAffiliateLinkBuilder` 등 다중 채널 구현 | 채널별 어필리에이트 가입/심사 (M3) |
+| **3 Freemium** | **T3-19** 가격 이력 (차트 차별화 가치) / 결제 모듈 (Stripe 또는 토스페이먼츠) — 신규 항목 | MAU 5,000 / 무료-유료 라인 결정 (M4, M5) |
+| **4 데이터 API** | **T3-19** 가격 이력 12개월 누적 / **T3-20** REST API + OpenAPI / **T3-18** 카테고리 정규화 (이미 ✅) | 약관/PII 정책 정비 (M7) / 데이터 SLA 정의 |
+| **∞ B2B** | (Pivot 결정 후 별도 — B2C 코드 재사용 어려움) | B2C 트래픽 정체 / 사장 사용자 비율 증가 / 경쟁자 진입 — 트리거 신호 모니터링 (M6) |
+
+## 핵심 관찰 — 다음 우선순위 후보
+
+- **T3-19 (가격 이력)** 은 단계 3(Freemium 차트 차별화) + 단계 4(데이터 라이선싱)를 둘 다 활성화하는 **수익화 ROI 최고 백로그**. 누적 시간이 필요한 항목(12개월 누적)이라 **빨리 시작할수록 단계 4 진입이 빨라짐**.
+- **현재 단계 0 운영 중** — 쿠팡 파트너스 매출/CTR 모니터링이 있어야 단계 1 진입 의사결정 가능. 정량 지표가 없으니 우선 부팅된 트래픽 누적 자체가 액션 아이템.
+- **단계 1 AdSense**는 기술 선행이 사실상 없음 — 가장 빠른 추가 수익 채널. 단, 신뢰 손상 비용 고려해 광고 영역 결정(M2)이 선행.
+
+## 직접 행동 (현재)
+
+| 시점 | 액션 |
+|---|---|
+| **지금** | 단계 0 운영, 트래픽/매출 메트릭 누적 시작 (수익 메트릭 추적 자체가 미구현 — Actuator(T2-13)와 함께 검토 가치) |
+| **트래픽 임계점 넘으면** | AdSense 신청 + 광고 영역 결정 (M1, M2) → 단계 1 진입 |
+| **AdSense 안정화 후** | `AffiliateLinkBuilder` 인터페이스 추출 → 네이버 어필리에이트 추가 (단계 2) |
+| **T3-19 착수 결정 시점** | Freemium/데이터 API 진입 시계 시작 |
+
+## Open Questions M1-M7
+
+비즈니스 결정 미확정 7개 — AdSense 도입 시기/위치, 프리미엄 단가, B2B Pivot 트리거 신호, 가격 이력 데이터 라이선싱 동의 절차 등. 자세한 내용 [monetization.md § Open Questions](monetization.md) 참조.
+
+## 의도적으로 안 하는 모델 (요약)
+
+[monetization.md](monetization.md)에 자세하지만 핵심만: **인터스티셜 광고, 레시피 잠금 + 결제 강요, 옵트인 없는 이메일/푸시 광고, 개인정보 판매, 암호화폐/NFT 토큰화**. 사용자 신뢰 자산 > 단기 수익.
