@@ -12,6 +12,8 @@ import com.goosepl.coastCalculator.domain.recipe.cost.RecipeCostResult;
 import com.goosepl.coastCalculator.domain.recipe.dto.RecipeForm;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.validation.BindingResult;
@@ -35,6 +37,9 @@ import java.util.stream.Collectors;
 public class RecipeController {
 
     private static final int FORM_ROWS = 10;
+    // T2-7: 내 레시피 목록도 페이징
+    private static final int LIST_PAGE_SIZE = 12;
+    private static final int MAX_PAGE_SIZE = 50;
 
     private final RecipeService recipeService;
     private final RecipeCostCalculator recipeCostCalculator;
@@ -43,8 +48,12 @@ public class RecipeController {
     private final IngredientService ingredientService;
 
     @GetMapping
-    public String list(Principal principal, Model model) {
-        model.addAttribute("recipes", recipeService.findMyRecipes(principal.getName()));
+    public String list(@RequestParam(value = "page", defaultValue = "0") int page,
+                       @RequestParam(value = "size", defaultValue = "12") int size,
+                       Principal principal, Model model) {
+        int safeSize = (size <= 0) ? LIST_PAGE_SIZE : Math.min(size, MAX_PAGE_SIZE);
+        Pageable pageable = PageRequest.of(Math.max(page, 0), safeSize);
+        model.addAttribute("recipesPage", recipeService.findMyRecipes(principal.getName(), pageable));
         return "recipes/list";
     }
 

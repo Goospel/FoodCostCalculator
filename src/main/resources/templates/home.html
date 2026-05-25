@@ -29,6 +29,13 @@
         .card .meta { color: #6b7280; font-size: 0.85rem; line-height: 1.5; }
         .card .meta .author { color: #2563eb; }
         .empty { padding: 40px 0; text-align: center; color: #6b7280; }
+        .pager { display: flex; justify-content: center; align-items: center; gap: 6px; margin: 32px 0 16px; flex-wrap: wrap; }
+        .pager a, .pager span { padding: 8px 12px; border: 1px solid #e5e7eb; border-radius: 6px; text-decoration: none; color: #2563eb; font-size: 0.9rem; line-height: 1; }
+        .pager a:hover { background: #f9fafb; }
+        .pager .current { background: #2563eb; color: white; border-color: #2563eb; cursor: default; }
+        .pager .disabled { color: #9ca3af; cursor: not-allowed; }
+        .pager .ellipsis { border: none; padding: 8px 4px; color: #9ca3af; }
+        .pager-meta { text-align: center; color: #6b7280; font-size: 0.85rem; margin-top: 4px; }
     </style>
 </head>
 <body>
@@ -65,7 +72,7 @@
     <a sec:authorize="isAuthenticated()" th:href="@{/recipes/new}" class="btn">+ 새 레시피</a>
 </div>
 
-<div class="empty" th:if="${#lists.isEmpty(recipes)}">
+<div class="empty" th:if="${recipesPage.empty}">
     <p th:if="${q != null and !#strings.isEmpty(q)}">검색 결과가 없습니다.</p>
     <p th:if="${q == null or #strings.isEmpty(q)}">
         아직 등록된 레시피가 없습니다.
@@ -78,8 +85,8 @@
     </p>
 </div>
 
-<div class="recipe-grid" th:unless="${#lists.isEmpty(recipes)}">
-    <div class="card" th:each="r : ${recipes}">
+<div class="recipe-grid" th:unless="${recipesPage.empty}">
+    <div class="card" th:each="r : ${recipesPage.content}">
         <a th:href="@{/recipes/{id}(id=${r.id})}" style="text-decoration:none;">
             <img th:if="${r.imageUrl != null and !#strings.isEmpty(r.imageUrl)}"
                  class="thumb" th:src="${r.imageUrl}" th:alt="${r.name}"/>
@@ -95,6 +102,34 @@
             <span th:text="${#temporals.format(r.createdAt, 'yyyy-MM-dd')}"></span>
         </div>
     </div>
+</div>
+
+<!--/* T2-7: 페이지네이션 — 한 페이지뿐이면 hide. 현재 페이지 ±2 + 양 끝 + 생략 표시(...) */-->
+<nav class="pager" th:if="${recipesPage.totalPages > 1}" aria-label="페이지 이동">
+    <a th:if="${recipesPage.hasPrevious()}"
+       th:href="@{/(q=${q}, page=${recipesPage.number - 1}, size=${recipesPage.size})}">← 이전</a>
+    <span th:unless="${recipesPage.hasPrevious()}" class="disabled">← 이전</span>
+
+    <!--/* current ±2 범위와 양 끝(0, total-1)만 표시. 그 사이는 ... */-->
+    <th:block th:with="cur=${recipesPage.number}, total=${recipesPage.totalPages}">
+        <th:block th:each="i : ${#numbers.sequence(0, total - 1)}">
+            <th:block th:if="${i == 0 or i == total - 1 or (i >= cur - 2 and i <= cur + 2)}">
+                <span th:if="${i == cur}" class="current" th:text="${i + 1}"></span>
+                <a th:unless="${i == cur}"
+                   th:href="@{/(q=${q}, page=${i}, size=${recipesPage.size})}"
+                   th:text="${i + 1}"></a>
+            </th:block>
+            <span th:if="${(i == 1 and cur > 3) or (i == total - 2 and cur < total - 4)}" class="ellipsis">…</span>
+        </th:block>
+    </th:block>
+
+    <a th:if="${recipesPage.hasNext()}"
+       th:href="@{/(q=${q}, page=${recipesPage.number + 1}, size=${recipesPage.size})}">다음 →</a>
+    <span th:unless="${recipesPage.hasNext()}" class="disabled">다음 →</span>
+</nav>
+<div class="pager-meta" th:if="${recipesPage.totalElements > 0}">
+    전체 <strong th:text="${recipesPage.totalElements}"></strong>개 ·
+    <span th:text="${recipesPage.number + 1} + ' / ' + ${recipesPage.totalPages} + ' 페이지'"></span>
 </div>
 </body>
 </html>

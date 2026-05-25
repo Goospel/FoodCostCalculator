@@ -14,6 +14,13 @@
         th, td { border-bottom: 1px solid #e5e7eb; padding: 10px 8px; text-align: left; font-size: 0.92rem; }
         th { background: #f9fafb; }
         a { color: #2563eb; }
+        .pager { display: flex; justify-content: center; align-items: center; gap: 6px; margin: 24px 0 8px; flex-wrap: wrap; }
+        .pager a, .pager span { padding: 8px 12px; border: 1px solid #e5e7eb; border-radius: 6px; text-decoration: none; color: #2563eb; font-size: 0.9rem; line-height: 1; }
+        .pager a:hover { background: #f9fafb; }
+        .pager .current { background: #2563eb; color: white; border-color: #2563eb; cursor: default; }
+        .pager .disabled { color: #9ca3af; cursor: not-allowed; }
+        .pager .ellipsis { border: none; padding: 8px 4px; color: #9ca3af; }
+        .pager-meta { text-align: center; color: #6b7280; font-size: 0.85rem; }
     </style>
 </head>
 <body>
@@ -42,12 +49,12 @@
     </tr>
     </thead>
     <tbody>
-    <tr th:if="${#lists.isEmpty(recipes)}">
+    <tr th:if="${recipesPage.empty}">
         <td colspan="4" style="text-align:center; padding:20px; color:#6b7280">
             아직 레시피가 없습니다. "새 레시피"를 눌러 추가하세요.
         </td>
     </tr>
-    <tr th:each="r : ${recipes}">
+    <tr th:each="r : ${recipesPage.content}">
         <td>
             <a th:href="@{/recipes/{id}(id=${r.id})}" th:text="${r.name}"></a>
         </td>
@@ -57,5 +64,32 @@
     </tr>
     </tbody>
 </table>
+
+<!--/* T2-7: 페이지네이션 — home.html과 동일 패턴 */-->
+<nav class="pager" th:if="${recipesPage.totalPages > 1}" aria-label="페이지 이동">
+    <a th:if="${recipesPage.hasPrevious()}"
+       th:href="@{/recipes(page=${recipesPage.number - 1}, size=${recipesPage.size})}">← 이전</a>
+    <span th:unless="${recipesPage.hasPrevious()}" class="disabled">← 이전</span>
+
+    <th:block th:with="cur=${recipesPage.number}, total=${recipesPage.totalPages}">
+        <th:block th:each="i : ${#numbers.sequence(0, total - 1)}">
+            <th:block th:if="${i == 0 or i == total - 1 or (i >= cur - 2 and i <= cur + 2)}">
+                <span th:if="${i == cur}" class="current" th:text="${i + 1}"></span>
+                <a th:unless="${i == cur}"
+                   th:href="@{/recipes(page=${i}, size=${recipesPage.size})}"
+                   th:text="${i + 1}"></a>
+            </th:block>
+            <span th:if="${(i == 1 and cur > 3) or (i == total - 2 and cur < total - 4)}" class="ellipsis">…</span>
+        </th:block>
+    </th:block>
+
+    <a th:if="${recipesPage.hasNext()}"
+       th:href="@{/recipes(page=${recipesPage.number + 1}, size=${recipesPage.size})}">다음 →</a>
+    <span th:unless="${recipesPage.hasNext()}" class="disabled">다음 →</span>
+</nav>
+<div class="pager-meta" th:if="${recipesPage.totalElements > 0}">
+    전체 <strong th:text="${recipesPage.totalElements}"></strong>개 ·
+    <span th:text="${recipesPage.number + 1} + ' / ' + ${recipesPage.totalPages} + ' 페이지'"></span>
+</div>
 </body>
 </html>

@@ -177,9 +177,9 @@
 
 ### Tier 2
 
-- [ ] T2-7. 페이지네이션 — 해결일: -
-  - 해결 PR/커밋: -
-  - 비고: -
+- [x] T2-7. 페이지네이션 — 해결일: 2026-05-25
+  - 해결 PR/커밋: feat: T2-7 페이지네이션 (홈/검색/내 레시피 Pageable + prev/next + ±2 페이지 번호)
+  - 비고: `RecipeRepository` 세 메서드(`findAllByOrderByCreatedAtDesc`, `findByNameContainingIgnoreCaseOrderByCreatedAtDesc`, `findByUserOrderByUpdatedAtDesc`)를 `List` → `Page<Recipe>` 반환으로 전환. `RecipeService`도 `Pageable` 인자/`Page` 반환. `HomeController` + `RecipeController.list`에 `?page&size` 쿼리 파라미터(기본 12, 상한 50). `home.html`/`recipes/list.html`에 페이지네이션 UI — prev/next + 현재 ±2 + 양 끝(0, total-1) + 사이는 `…`, q 파라미터 보존, 한 페이지뿐이면 hide. 페이지 메타("전체 N개 · K / total 페이지") 표시. `RecipeRepositoryTest` 기존 3개 갱신 + 페이지 메타데이터(totalElements/totalPages/hasNext/hasPrevious) 검증 케이스 1개 추가 — 총 65 테스트(이전 64 → +1). **미해결**: ToMany + Pageable 조합으로 Hibernate가 "in memory paging" 경고 띄울 수 있음. 페이지 12라 영향 미미하지만 root cause는 **T2-11**에서 two-step 쿼리(ID Page → entity fetch) 패턴으로 정리 예정.
 - [ ] T2-8. 비동기 / 스케줄러 기반 Naver refetch — 해결일: -
   - 해결 PR/커밋: -
   - 비고: -

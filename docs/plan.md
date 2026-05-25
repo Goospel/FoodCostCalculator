@@ -24,6 +24,7 @@
 | T2-9 | Naver API 타임아웃(5s/10s) + Spring Retry(3회 지수 backoff) + Recover fallback | ✅ |
 | T3-22 후속 | GitHub Actions CI/CD (`.github/workflows/ci.yml`) — test + GHCR 이미지 푸시 | ✅ |
 | T3-17 | selectedIngredient UI — "이 제품으로 고정" 드롭다운 + 카테고리/단위 검증 (64 테스트) | ✅ |
+| T2-7 | 페이지네이션 — 홈/검색/내 레시피, 페이지 크기 12, prev/next + ±2 페이지 번호 (65 테스트) | ✅ |
 | **다음** | **(보류) T2-13 Actuator + 모니터링 — 배포 직전 일괄 처리** | ⏸ |
 
 ---
@@ -335,6 +336,43 @@ EC2 비공개 베타용 준비 단계. 실제 EC2 배포는 보류 (사용자가
 
 ---
 
+# T2-7: 페이지네이션 — 완료 (2026-05-25)
+
+`improvements.md` T2-7 해결.
+
+## 변경
+- **`RecipeRepository`** — 세 메서드를 `List<Recipe>` → `Page<Recipe>` 반환으로 전환:
+  - `findAllByOrderByCreatedAtDesc(Pageable)`
+  - `findByNameContainingIgnoreCaseOrderByCreatedAtDesc(String, Pageable)`
+  - `findByUserOrderByUpdatedAtDesc(User, Pageable)` ← 인자 추가
+  - EntityGraph는 그대로. Spring Data가 count 쿼리는 별도 발행하니 EntityGraph 영향 없음.
+- **`RecipeService`** — `findRecent(int) / searchByName(String, int) / findMyRecipes(String)` → 모두 `Pageable` 인자 + `Page<Recipe>` 반환.
+- **`HomeController`** — `?q=&page=0&size=12` 쿼리 파라미터. `size`는 1-50 클램프(비정상 쿼리 방어). 모델 키 `recipesPage`.
+- **`RecipeController.list`** — 동일 패턴. `?page=0&size=12`.
+- **`home.html` / `recipes/list.html`** — 페이지네이션 UI 추가:
+  - `recipesPage.empty` 분기
+  - prev/next 버튼 + 현재 ±2 페이지 번호 + 양 끝(0, total-1)
+  - 그 사이는 `…` 생략 표시
+  - 페이지가 1개뿐이면 `pager` 전체 hide
+  - 페이지 메타("전체 N개 · K / total 페이지")
+  - `q` 파라미터 보존 (검색 결과 페이지 이동 시 검색어 유지)
+
+## URL 파라미터 정책
+- 사용자에게는 1-indexed로 보임 (`number + 1`). 내부/Spring은 0-indexed.
+- 페이지 사이즈 기본 12, 상한 50. `size=0` 또는 음수 → 12로 보정.
+- 잘못된 `page` (음수) → 0으로 보정.
+
+## 의도적 비포함 (후속)
+- **Hibernate `firstResult/maxResults specified with collection fetch; applying in memory` 경고**: ToMany(`ingredients`) + Pageable 조합이라 발생할 수 있음. 페이지 12라 영향 미미. 근본 해결은 **T2-11(N+1 점검)** 에서 two-step 쿼리 또는 ID-only Page → 별도 fetch 패턴으로 처리 예정.
+- 내림차순/오름차순 토글, 정렬 기준 변경 UI — 현재 모두 createdAt DESC / updatedAt DESC 고정.
+- 무한 스크롤 / htmx 기반 — JS 없음 정책상 prev/next 페이저 유지.
+
+## 테스트 (총 65, 이전 64 → +1)
+- `RecipeRepositoryTest` +1 — `findAllByOrderByCreatedAtDesc` 페이지 크기 2 × 5개 데이터로 `totalElements=5, totalPages=3, hasNext/Previous, page2.content=1` 검증
+- 기존 3개 테스트(`findAllRecentWithEntityGraph`, `searchByNameIgnoresCase`, `findByUserReturnsOnlyMine`)를 Page 시그니처로 갱신 + totalElements assertion 추가
+
+---
+
 # T3-17: selectedIngredient UI 완성 — 완료 (2026-05-23)
 
 `improvements.md` T3-17 해결.
@@ -394,7 +432,7 @@ EC2 비공개 베타용 준비 단계. 실제 EC2 배포는 보류 (사용자가
 ## 이후 후보 (improvements.md 참조)
 
 - T2-8 비동기 / 스케줄러 기반 Naver refetch (T2-9와 짝)
-- T2-7 페이지네이션 (홈/검색 N=20 하드코딩)
+- T2-11 N+1 점검 후속 — T2-7에서 발생 가능한 `ToMany + Pageable` in-memory paging 경고 정리 (two-step 쿼리 패턴)
 - T3-18 카테고리 정규화 (마스터 테이블 / synonym) — T3-17과 자연 연결
 - T1-4 시크릿 외부 저장소 (현재 application-local.yaml 분리만 — 운영급 Vault/AWS Secrets 미적용)
 - (보류) EC2 실제 배포 + 배포 직전 T2-13 Actuator
