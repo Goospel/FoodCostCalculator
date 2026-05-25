@@ -53,7 +53,8 @@ Java 25, Spring Boot 4.0.6, Gradle. Spring Web MVC + Data JPA + Security + Thyme
 
 ```
 config/           SecurityConfig, NaverApiProperties, AffiliateProperties, RetryConfig,
-                  AsyncConfig (T2-8 @EnableAsync/@EnableScheduling), WebMvcConfig
+                  AsyncConfig (T2-8 @EnableAsync/@EnableScheduling),
+                  ProductionSecretsValidator (T1-4 @Profile("prod")), WebMvcConfig
 domain/user/      User, Role, UserRepository, UserService, CustomUserDetailsService, DataInitializer,
                   auth/(LoginAttemptService, AuthenticationEventListener)
 domain/ingredient/ Ingredient, Unit, IngredientRepository, IngredientService,
@@ -117,6 +118,14 @@ web/error/        GlobalExceptionHandler
 ## 보안
 - 비밀번호: 최소 8자 + 영문/숫자 (`@Pattern`).
 - Brute force: username당 5회 실패 → 15분 잠금 (`LoginAttemptService`, 메모리 `ConcurrentHashMap`). 15분 경과 시 자동 해제.
+
+## 운영 시크릿 (T1-4)
+- 운영은 `SPRING_PROFILES_ACTIVE=prod` (docker-compose.prod.yml 자동 주입) → `application-prod.yaml` 활성 + `ProductionSecretsValidator` 부팅 검증.
+- 검증 실패 시 부팅 거부:
+  1. DB 자격증명이 디폴트(`coast`/`coastpass`) 그대로면 거부
+  2. `INITIAL_ADMIN_PASSWORD` 빈 채로 두면 거부 (랜덤 비번 로그 노출은 운영에서 금지 — 회전 어려움 + 로그 유출 시 즉시 침해)
+  3. `naver.api.mock-enabled=false`인데 `NAVER_CLIENT_ID`/`SECRET` 비어있으면 거부
+- 위반 모두 모아 IllegalStateException 한 번에 표시. 시크릿 관리/회전/외부 저장소 통합 hook: [docs/deployment.md § 9](docs/deployment.md).
 
 ## 화면 정책
 - **JS 없음 정책** (Open Q #24) — 모든 인터랙션은 폼 POST + redirect. 동적 UI는 폼 GET 시점에 모델로 미리 담아 렌더링 (예: T3-17 selectedIngredient `<optgroup>`).
