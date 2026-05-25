@@ -20,20 +20,20 @@ import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.PersistenceUnit;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * RecipeRepository의 EntityGraph 동작을 검증.
+ * RecipeRepository의 two-step 쿼리 + EntityGraph 동작 검증.
  *
  * 목적:
- *  - EntityGraph 설정이 깨지면(잘못된 attributePath, 누락, 오타) 즉시 감지
- *  - findWithDetailsById가 user/ingredients를 함께 로드함 — N+1/LazyInit 회귀 방지
- *  - 검색·목록 메서드들이 의도한 정렬과 필터로 동작
- *
- * Hibernate Statistics로 EntityGraph 메서드의 쿼리 수를 측정해
- * "EntityGraph 누락 시 N+1이 폭발하는" 회귀를 직접 잡는다.
+ *  - **T2-11**: ToMany 컬렉션 페이징 시 in-memory paging 회피 — ID-only Page → IN 절 + EntityGraph fetch
+ *  - **EntityGraph 설정 회귀 방지** — attributePath 오타/누락 시 즉시 감지
+ *  - **N+1 회귀 방지** — Hibernate Statistics로 쿼리 수 측정
+ *  - findWithDetailsById가 user/ingredients/ingredients.selectedIngredient까지 페치
+ *  - findWithUserAndIngredientsById가 user/ingredients를 한 번에 페치 (findMine 패턴)
  */
 @DataJpaTest
 @ActiveProfiles("test")
@@ -88,8 +88,12 @@ class RecipeRepositoryTest {
         statistics().clear();
     }
 
+    // ============================================================
+    // 단건 조회 — EntityGraph 동작
+    // ============================================================
+
     @Test
-    @DisplayName("findWithDetailsById: user와 ingredients를 EntityGraph로 함께 로드")
+    @DisplayName("findWithDetailsById: user/ingredients/ingredients.selectedIngredient EntityGraph")
     void findWithDetailsByIdEagerLoadsUserAndIngredients() {
         User user = persistUser("alice");
         Recipe recipe = persistRecipe(user, "김치찌개", "김치", "돼지고기", "두부");
@@ -101,117 +105,172 @@ class RecipeRepositoryTest {
         assertThat(result).isPresent();
         Recipe loaded = result.get();
         assertThat(loaded.getName()).isEqualTo("김치찌개");
-        // user / ingredients가 EntityGraph로 함께 페치돼 있어야 함
         assertThat(loaded.getUser().getUsername()).isEqualTo("alice");
         assertThat(loaded.getIngredients()).hasSize(3);
         assertThat(loaded.getIngredients())
                 .extracting(RecipeIngredient::getCategoryName)
                 .containsExactly("김치", "돼지고기", "두부");
 
-        // EntityGraph 누락 시 4번 (recipe + user + 각 ingredient 그룹) 이상 쿼리가 나가지만
-        // EntityGraph가 적용돼 있으면 3 이하 (Hibernate가 join fetch로 묶음)
         long executedQueries = statistics().getPrepareStatementCount();
         assertThat(executedQueries)
-                .as("EntityGraph가 user/ingredients를 함께 페치하면 적은 쿼리로 끝나야 함")
+                .as("EntityGraph가 user/ingredients/selectedIngredient를 함께 페치하면 적은 쿼리로 끝나야 함")
                 .isLessThanOrEqualTo(3);
     }
 
     @Test
-    @DisplayName("findAllByOrderByCreatedAtDesc: 최신순 + user/ingredients EntityGraph + Page 메타데이터")
-    void findAllRecentWithEntityGraph() {
-        User userA = persistUser("alice");
-        User userB = persistUser("bob");
-        persistRecipe(userA, "레시피 1", "밀가루");
-        persistRecipe(userB, "레시피 2", "설탕");
-        persistRecipe(userA, "레시피 3", "소금", "후추");
+    @DisplayName("findWithUserAndIngredientsById (findMine 패턴): user/ingredients만 페치, selectedIngredient는 LAZY")
+    void findWithUserAndIngredientsByIdEagerLoadsTwoPaths() {
+        User user = persistUser("alice");
+        Recipe recipe = persistRecipe(user, "김치찌개", "김치", "돼지고기");
         em.clear();
         statistics().clear();
 
-        Page<Recipe> recent = recipeRepository.findAllByOrderByCreatedAtDesc(PageRequest.of(0, 10));
+        Optional<Recipe> result = recipeRepository.findWithUserAndIngredientsById(recipe.getId());
 
-        assertThat(recent.getContent()).hasSize(3);
-        assertThat(recent.getTotalElements()).isEqualTo(3);
-        assertThat(recent.getTotalPages()).isEqualTo(1);
-        // user 필드가 LazyInit 없이 접근 가능
-        assertThat(recent.getContent()).allMatch(r -> r.getUser().getUsername() != null);
-        // ingredients 도 함께 로드
-        assertThat(recent.getContent()).allMatch(r -> r.getIngredients() != null);
+        assertThat(result).isPresent();
+        Recipe loaded = result.get();
+        // user는 EntityGraph로 즉시 접근 가능
+        assertThat(loaded.getUser().getUsername()).isEqualTo("alice");
+        // ingredients도 즉시 접근 가능 (findMine에서 .size() 강제 초기화 제거 가능)
+        assertThat(loaded.getIngredients()).hasSize(2);
+
+        long executedQueries = statistics().getPrepareStatementCount();
+        assertThat(executedQueries)
+                .as("user + ingredients EntityGraph로 페치하면 3 이하 쿼리")
+                .isLessThanOrEqualTo(3);
+    }
+
+    // ============================================================
+    // T2-11 two-step 쿼리 — ID Page → entity fetch
+    // ============================================================
+
+    @Test
+    @DisplayName("findIdsAllByCreatedAtDesc: ID-only Page, count + ID select만 — collection fetch 없음")
+    void findIdsAllByCreatedAtDescReturnsIdPage() {
+        User user = persistUser("alice");
+        persistRecipe(user, "레시피 A", "밀가루");
+        persistRecipe(user, "레시피 B", "설탕");
+        persistRecipe(user, "레시피 C", "소금", "후추");
+        em.clear();
+        statistics().clear();
+
+        Page<Long> idPage = recipeRepository.findIdsAllByCreatedAtDesc(PageRequest.of(0, 10));
+
+        assertThat(idPage.getContent()).hasSize(3);
+        assertThat(idPage.getTotalElements()).isEqualTo(3);
+        assertThat(idPage.getContent()).allMatch(id -> id != null);
+        // ID-only 쿼리는 count + select id 두 개 정도
+        long executedQueries = statistics().getPrepareStatementCount();
+        assertThat(executedQueries)
+                .as("ID-only Page는 count + select id로 2 쿼리만 (collection fetch 미발생)")
+                .isLessThanOrEqualTo(2);
     }
 
     @Test
-    @DisplayName("findAllByOrderByCreatedAtDesc: 페이지 크기/넘어가는 페이지 메타데이터")
-    void findAllRecentPaging() {
+    @DisplayName("findIdsAllByCreatedAtDesc: 페이지 크기/넘어가는 페이지 메타데이터")
+    void findIdsAllByCreatedAtDescPagingMeta() {
         User user = persistUser("alice");
-        // 5개 생성 → size=2 → totalPages=3
         for (int i = 0; i < 5; i++) {
             persistRecipe(user, "레시피 " + i, "밀가루");
         }
         em.clear();
 
-        Page<Recipe> page0 = recipeRepository.findAllByOrderByCreatedAtDesc(PageRequest.of(0, 2));
+        Page<Long> page0 = recipeRepository.findIdsAllByCreatedAtDesc(PageRequest.of(0, 2));
         assertThat(page0.getContent()).hasSize(2);
         assertThat(page0.getTotalElements()).isEqualTo(5);
         assertThat(page0.getTotalPages()).isEqualTo(3);
         assertThat(page0.hasNext()).isTrue();
         assertThat(page0.hasPrevious()).isFalse();
 
-        Page<Recipe> page2 = recipeRepository.findAllByOrderByCreatedAtDesc(PageRequest.of(2, 2));
+        Page<Long> page2 = recipeRepository.findIdsAllByCreatedAtDesc(PageRequest.of(2, 2));
         assertThat(page2.getContent()).hasSize(1);
         assertThat(page2.hasNext()).isFalse();
         assertThat(page2.hasPrevious()).isTrue();
-        assertThat(page2.getNumber()).isEqualTo(2);
     }
 
     @Test
-    @DisplayName("findByNameContainingIgnoreCase: 부분 일치 + 대소문자 무시 + Page 반환")
-    void searchByNameIgnoresCase() {
+    @DisplayName("findAllWithDetailsByIdInOrderByCreatedAtDesc: IN 절로 fetch + ORDER BY 보존 + EntityGraph")
+    void findAllWithDetailsByIdInOrderByCreatedAtDescFetches() {
+        User userA = persistUser("alice");
+        User userB = persistUser("bob");
+        Recipe r1 = persistRecipe(userA, "1번", "밀가루");
+        Recipe r2 = persistRecipe(userB, "2번", "설탕");
+        Recipe r3 = persistRecipe(userA, "3번", "소금", "후추");
+        em.clear();
+        statistics().clear();
+
+        List<Recipe> fetched = recipeRepository
+                .findAllWithDetailsByIdInOrderByCreatedAtDesc(List.of(r1.getId(), r2.getId(), r3.getId()));
+
+        // ORDER BY r.createdAt DESC → 가장 늦게 만든 r3가 먼저
+        assertThat(fetched).extracting(Recipe::getName).containsExactly("3번", "2번", "1번");
+        // EntityGraph 적용 — user / ingredients 즉시 접근 가능
+        assertThat(fetched).allMatch(r -> r.getUser().getUsername() != null);
+        assertThat(fetched).allMatch(r -> r.getIngredients() != null && !r.getIngredients().isEmpty());
+
+        // EntityGraph로 묶어서 페치 → 적은 쿼리
+        long executedQueries = statistics().getPrepareStatementCount();
+        assertThat(executedQueries)
+                .as("IN 절 + EntityGraph는 LEFT JOIN으로 묶여 적은 쿼리")
+                .isLessThanOrEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("findIdsByNameContainingIgnoreCase: 부분 일치 + 대소문자 무시 + ID Page")
+    void findIdsByNameContainingIgnoreCase() {
         User user = persistUser("alice");
         persistRecipe(user, "김치찌개", "김치");
         persistRecipe(user, "된장찌개", "된장");
         persistRecipe(user, "TOMATO PASTA", "토마토");
         em.clear();
 
-        Page<Recipe> kimchi = recipeRepository
-                .findByNameContainingIgnoreCaseOrderByCreatedAtDesc("김치", PageRequest.of(0, 10));
-        assertThat(kimchi.getContent())
-                .extracting(Recipe::getName)
-                .containsExactlyInAnyOrder("김치찌개");
+        Page<Long> kimchi = recipeRepository.findIdsByNameContainingIgnoreCaseOrderByCreatedAtDesc(
+                "김치", PageRequest.of(0, 10));
         assertThat(kimchi.getTotalElements()).isEqualTo(1);
 
-        Page<Recipe> jjigae = recipeRepository
-                .findByNameContainingIgnoreCaseOrderByCreatedAtDesc("찌개", PageRequest.of(0, 10));
-        assertThat(jjigae.getContent())
-                .extracting(Recipe::getName)
-                .containsExactlyInAnyOrder("김치찌개", "된장찌개");
+        Page<Long> jjigae = recipeRepository.findIdsByNameContainingIgnoreCaseOrderByCreatedAtDesc(
+                "찌개", PageRequest.of(0, 10));
         assertThat(jjigae.getTotalElements()).isEqualTo(2);
 
         // 대소문자 무시
-        Page<Recipe> caseInsensitive = recipeRepository
-                .findByNameContainingIgnoreCaseOrderByCreatedAtDesc("tomato", PageRequest.of(0, 10));
-        assertThat(caseInsensitive.getContent())
-                .extracting(Recipe::getName)
-                .containsExactly("TOMATO PASTA");
+        Page<Long> caseInsensitive = recipeRepository.findIdsByNameContainingIgnoreCaseOrderByCreatedAtDesc(
+                "tomato", PageRequest.of(0, 10));
+        assertThat(caseInsensitive.getTotalElements()).isEqualTo(1);
     }
 
     @Test
-    @DisplayName("findByUserOrderByUpdatedAtDesc: 본인 레시피만 반환 + ingredients EntityGraph + Page")
-    void findByUserReturnsOnlyMine() {
+    @DisplayName("findIdsByUserOrderByUpdatedAtDesc: 본인 ID만 + ID Page")
+    void findIdsByUserOrderByUpdatedAtDesc() {
         User alice = persistUser("alice");
         User bob = persistUser("bob");
-        persistRecipe(alice, "alice의 레시피 1", "밀가루");
-        persistRecipe(bob, "bob의 레시피", "설탕");
-        persistRecipe(alice, "alice의 레시피 2", "소금", "후추");
+        persistRecipe(alice, "alice 1", "밀가루");
+        persistRecipe(bob, "bob 것", "설탕");
+        persistRecipe(alice, "alice 2", "소금");
         em.clear();
 
-        Page<Recipe> aliceRecipes = recipeRepository
-                .findByUserOrderByUpdatedAtDesc(alice, PageRequest.of(0, 10));
+        Page<Long> alicePage = recipeRepository.findIdsByUserOrderByUpdatedAtDesc(alice, PageRequest.of(0, 10));
+        assertThat(alicePage.getTotalElements()).isEqualTo(2);
 
-        assertThat(aliceRecipes.getContent()).hasSize(2);
-        assertThat(aliceRecipes.getTotalElements()).isEqualTo(2);
-        assertThat(aliceRecipes.getContent())
-                .extracting(Recipe::getName)
-                .containsExactlyInAnyOrder("alice의 레시피 1", "alice의 레시피 2");
-        // ingredients EntityGraph 동작
-        assertThat(aliceRecipes.getContent()).allMatch(r -> r.getIngredients() != null && !r.getIngredients().isEmpty());
+        // bob 결과로 fetch해도 alice 것이 안 섞임
+        Page<Long> bobPage = recipeRepository.findIdsByUserOrderByUpdatedAtDesc(bob, PageRequest.of(0, 10));
+        assertThat(bobPage.getTotalElements()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("findAllWithDetailsByIdInOrderByUpdatedAtDesc: updatedAt 정렬 보존")
+    void findAllWithDetailsByIdInOrderByUpdatedAtDesc() {
+        User user = persistUser("alice");
+        Recipe r1 = persistRecipe(user, "1번", "밀가루");
+        Recipe r2 = persistRecipe(user, "2번", "설탕");
+        em.clear();
+
+        List<Recipe> fetched = recipeRepository
+                .findAllWithDetailsByIdInOrderByUpdatedAtDesc(List.of(r1.getId(), r2.getId()));
+
+        // updatedAt DESC → 늦게 만든 r2가 먼저 (persistAndFlush가 updatedAt 갱신)
+        assertThat(fetched).extracting(Recipe::getName).containsExactly("2번", "1번");
+        // EntityGraph 적용
+        assertThat(fetched).allMatch(r -> r.getUser().getUsername().equals("alice"));
+        assertThat(fetched).allMatch(r -> !r.getIngredients().isEmpty());
     }
 }

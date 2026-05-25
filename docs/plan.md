@@ -26,6 +26,7 @@
 | T3-17 | selectedIngredient UI — "이 제품으로 고정" 드롭다운 + 카테고리/단위 검증 (64 테스트) | ✅ |
 | T2-7 | 페이지네이션 — 홈/검색/내 레시피, 페이지 크기 12, prev/next + ±2 페이지 번호 (65 테스트) | ✅ |
 | T3-18 | 카테고리 마스터 — `categories` 테이블 + Flyway V2 + datalist 자동완성 (73 테스트) | ✅ |
+| T2-11 | N+1 점검 후속 — two-step 쿼리(ID Page → IN 절 + EntityGraph) + findMine 강제 초기화 제거 (76 테스트) | ✅ |
 | **다음** | **(보류) T2-13 Actuator + 모니터링 — 배포 직전 일괄 처리** | ⏸ |
 
 ---
@@ -368,6 +369,52 @@ EC2 비공개 베타용 준비 단계. 실제 EC2 배포는 보류 (사용자가
 
 ---
 
+# T2-11: N+1 점검 후속 — 완료 (2026-05-25)
+
+`improvements.md` T2-11 해결. T2-7에서 의도적으로 미뤘던 "ToMany + Pageable in-memory paging" root cause 정리 + `findMine`의 `.getIngredients().size()` 강제 초기화 패턴 제거 + troubleshooting [TS-3](troubleshooting.md) 잔존 위험 해소.
+
+## 문제 정리
+
+**증상 1**: ToMany 컬렉션(`ingredients`)을 EntityGraph로 fetch하면서 Pageable을 적용하면 Hibernate가 `firstResult/maxResults specified with collection fetch; applying in memory` 경고 → 전체 결과를 메모리에 올린 뒤 자름. 페이지 12라 영향 미미하지만 데이터 늘면 부하 잠복.
+
+**증상 2**: `RecipeService.findMine`이 `findById` 후 `recipe.getIngredients().size()` 강제 초기화로 LAZY 회피. 명시적이지 않고 향후 변경에 약함.
+
+## 해결 — two-step 쿼리 패턴
+
+```
+1) Page<Long> idPage = repo.findIdsByXxx(pageable)
+     → count(*) + SELECT id FROM ... ORDER BY ... LIMIT/OFFSET (collection 미참조, in-memory paging 미발생)
+2) List<Recipe> content = repo.findAllWithDetailsByIdInOrderByXxx(idPage.getContent())
+     → SELECT entity + LEFT JOIN FETCH (EntityGraph + IN 절 + ORDER BY 보존)
+3) return new PageImpl<>(content, pageable, idPage.getTotalElements())
+```
+
+`assemblePage(idPage, entityFetcher, pageable)` 헬퍼로 세 페이징 메서드(`findRecent`/`searchByName`/`findMyRecipes`)가 공유.
+
+## 변경
+- **`RecipeRepository`**:
+  - 추가: ID-only Page 3개 (`findIdsAllByCreatedAtDesc`, `findIdsByNameContainingIgnoreCase...`, `findIdsByUserOrderByUpdatedAtDesc`) — `@Query`로 SELECT r.id 명시
+  - 추가: entity fetch 2개 (`findAllWithDetailsByIdInOrderByCreatedAtDesc`, `...OrderByUpdatedAtDesc`) — `@EntityGraph` + IN 절 + ORDER BY
+  - 추가: `findWithUserAndIngredientsById` — `findMine` 전용 (`ingredients.selectedIngredient`는 LAZY 유지, 편집 폼에서 ID만 쓰니까)
+  - 제거: 기존 `Page<Recipe>` 반환 3개 (T2-7에서 도입했던 메서드)
+- **`RecipeService`**:
+  - 세 페이징 메서드를 `assemblePage` 헬퍼 + two-step으로 재구현. 빈 idPage면 entity 쿼리 호출 X (불필요한 IN () 회피).
+  - `findMine`: `findById` + `.getIngredients().size()` → `findWithUserAndIngredientsById` 한 번 호출로 단순화.
+- **`RecipeRepositoryTest`** (5 → 8): 시그니처 변경 따라가기 + 쿼리 카운트 회귀 검증 강화
+  - ID-only Page 쿼리는 ≤2 쿼리 (count + select id, collection 미참조)
+  - IN 절 + EntityGraph는 ≤2 쿼리 (LEFT JOIN으로 묶임)
+  - `findWithUserAndIngredientsById` ≤3 쿼리
+
+## 의도적 비포함 (선택)
+- **DataSource Proxy / `use_sql_comments=true`**: 개발 환경 N+1 자동 감지. 별도 PR로 분리 (테스트 카운트 검증으로 회귀는 이미 잡힘).
+- **`@SqlResultSetMapping` 또는 projection DTO**: 카드 뷰만 쓸 거면 ingredients 전체 entity가 아니라 `INGREDIENT_COUNT(*)` 같은 카운트만 SELECT하면 더 가벼움. 현재는 `${#lists.size(r.ingredients)}` 가 템플릿에서 직접 호출되어서 entity 필요. 추후 카드 DTO화 시 다룰 항목.
+
+## 테스트 (총 76, 이전 T3-18 73 → +3)
+- `RecipeRepositoryTest` 5 → 8 (+3) — `findIdsAllByCreatedAtDesc` 쿼리 카운트, `findWithUserAndIngredientsById` EntityGraph 검증, IN 절 + ORDER BY 보존
+- `RecipeServiceTest` 시그니처 갱신만 (`findById` → `findWithUserAndIngredientsById`)
+
+---
+
 # T2-7: 페이지네이션 — 완료 (2026-05-25)
 
 `improvements.md` T2-7 해결.
@@ -464,7 +511,6 @@ EC2 비공개 베타용 준비 단계. 실제 EC2 배포는 보류 (사용자가
 ## 이후 후보 (improvements.md 참조)
 
 - T2-8 비동기 / 스케줄러 기반 Naver refetch (T2-9와 짝)
-- T2-11 N+1 점검 후속 — T2-7에서 발생 가능한 `ToMany + Pageable` in-memory paging 경고 정리 (two-step 쿼리 패턴)
 - T3-18.2 카테고리 alias/synonym 매핑 (박력분 → 밀가루) — T3-18 후속
 - T1-4 시크릿 외부 저장소 (현재 application-local.yaml 분리만 — 운영급 Vault/AWS Secrets 미적용)
 - (보류) EC2 실제 배포 + 배포 직전 T2-13 Actuator

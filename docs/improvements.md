@@ -189,9 +189,9 @@
 - [ ] T2-10. 캐싱 레이어 (Caffeine → Redis) — 해결일: -
   - 해결 PR/커밋: -
   - 비고: -
-- [ ] T2-11. N+1 점검 (전체 컬렉션 경로) — 해결일: -
-  - 해결 PR/커밋: -
-  - 비고: (부분 진척, 2026-05-21) `RecipeRepository.findByUserOrderByUpdatedAtDesc`, `findAllByOrderByCreatedAtDesc`, `findByNameContainingIgnoreCase...`, `findWithDetailsById`에 `@EntityGraph(attributePaths={"user","ingredients"})` 적용. 그러나 `RecipeService.findMine`은 여전히 `getIngredients().size()` 강제 초기화 패턴. 전체 컬렉션 경로 감사 + DataSource Proxy 같은 자동 감지 도구는 미적용
+- [x] T2-11. N+1 점검 (전체 컬렉션 경로) — 해결일: 2026-05-25 (부분 해결)
+  - 해결 PR/커밋: feat: T2-11 N+1 점검 후속 (two-step 쿼리 + findMine 강제 초기화 제거)
+  - 비고: **(1) two-step 쿼리 패턴** — T2-7에서 도입한 `Page<Recipe>` 직접 반환은 ToMany(`ingredients`) + Pageable 조합으로 Hibernate "in-memory paging" 경고 유발. RecipeRepository를 ID-only `Page<Long>` 쿼리 3개 + IN 절 + EntityGraph + ORDER BY 보존 entity fetch 2개로 분리. RecipeService에 `assemblePage` 헬퍼로 세 페이징 메서드(findRecent/searchByName/findMyRecipes)가 공유. **(2) `findMine`의 `.getIngredients().size()` 강제 초기화 제거** — `findWithUserAndIngredientsById` EntityGraph 메서드로 명시화. **(3) `RecipeRepositoryTest` 5 → 8** — ID-only Page 쿼리 카운트(≤2), IN 절+EntityGraph 카운트(≤2), `findWithUserAndIngredientsById`(≤3) 회귀 검증. TS-3의 잔존 위험 해소(troubleshooting.md TS-3 갱신). **미해결**: DataSource Proxy 같은 개발 환경 자동 감지 도구는 별도 PR로 분리 (테스트 카운트 검증으로 회귀는 잡힘). 카드 뷰의 `${#lists.size(r.ingredients)}` 호출을 `RecipeCardView` projection DTO로 가볍게 만드는 건 추후 항목.
 - [ ] T2-12. Optimistic locking (@Version) — 해결일: -
   - 해결 PR/커밋: -
   - 비고: -
