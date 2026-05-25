@@ -1,316 +1,138 @@
 # coastCalculator
 
-음식 재료 가격 계산기. 관리자가 등록한 식재료 가격 데이터를 기반으로 사용자가 레시피를 입력하면 1g당 가격으로 원가를 계산해 보여주는 웹 서비스. **레시피 공유 허브** 컨셉 — 모두가 공개 레시피를 둘러보고, 인증 사용자는 작성, 소유자만 수정/삭제.
+음식 재료 가격 계산기. 관리자가 등록한 식재료 가격 데이터를 기반으로 사용자가 레시피를 입력하면 1g당 가격으로 원가를 계산해 보여주는 웹 서비스. **레시피 공유 허브** 컨셉 — 익명이 공개 레시피를 둘러보고, 인증 사용자가 작성, 소유자만 수정/삭제.
 
-**핵심 인사이트**: 원가 계산은 보통 업소용 대용량(예: 밀가루 20kg) 기준이므로, 제품 가격이 아니라 **1g(또는 1ml)당 가격**으로 정규화해서 저장 → 어떤 단위 제품이든 공정 비교 가능.
+**핵심 인사이트**: 원가 계산은 보통 업소용 대용량(예: 밀가루 20kg) 기준이라 제품 가격이 아니라 **1g(또는 1ml)당 가격**으로 정규화 저장 → 어떤 단위 제품이든 공정 비교 가능.
 
-> 작업 진행 상태 / Task별 상세 / Open Questions / Verification 체크리스트는 [docs/plan.md](docs/plan.md) 참조.
->
-> **개발 중 만난 함정과 해결 과정**(Spring Boot 4 모듈 분리, Naver API 권한, LazyInit 등): [docs/troubleshooting.md](docs/troubleshooting.md) — **새 라이브러리 추가/낯선 에러 만나면 여기 먼저 확인**.
->
-> **수익화 모델 결정 / 비즈니스 옵션 비교**: [docs/monetization.md](docs/monetization.md) — 광고/제휴/구독/B2B Pivot 후보까지. 기술 백로그(`improvements.md`)와 분리.
+---
+
+# 문서 안내 (먼저 여기서 찾을 것)
+
+| 문서 | 언제 보나 |
+|---|---|
+| [docs/plan.md](docs/plan.md) | 작업 진행 상태 / Task별 상세 / Open Questions / Verification |
+| [docs/troubleshooting.md](docs/troubleshooting.md) | **새 에러/낯선 동작 만나면 무조건 여기 먼저**. 새 함정은 해결 후 TS-N으로 기록 |
+| [docs/improvements.md](docs/improvements.md) | 배포 readiness 백로그 (Tier 1/2/3) |
+| [docs/monetization.md](docs/monetization.md) | 수익화 모델 / B2B 장기 비전 후보 |
+| [docs/deployment.md](docs/deployment.md) | EC2 배포 가이드 |
+
+---
+
+# 워크플로우 규칙 (반드시 지킬 것)
+
+## PR 만들기 전
+1. **항상** `gh pr list --repo Goospel/FoodCostCalculator --state all --limit 10` 으로 **다음 PR 번호 + 진행 중 PR 유무** 확인.
+2. PR 본문 또는 머지 메시지에 "이번 PR이 #N" 식으로 번호 명시.
+3. 새 작업은 항상 **main 최신화 → 새 브랜치**(`feat/...`, `docs/...`, `fix/...`).
+
+## 에러/낯선 동작 만났을 때
+1. **`docs/troubleshooting.md` 먼저 확인**. 같은/비슷한 TS-N이 있는지.
+2. 거기 없는 새 함정이면 해결 후 **반드시 TS-N으로 추가** (형식: **증상 → 진단 → 해결 → 교훈**).
+
+## 코드 변경
+- 운영 `application.yaml` 수정은 신중 — Docker/CI/운영 영향. 로컬 전용은 `application-local.yaml` 사용 (`.gitignore`).
+- DB 스키마 변경은 **Flyway V2/V3 마이그레이션 필수**. `ddl-auto: validate` 유지.
+- 모든 컬렉션 페치 경로에 `@EntityGraph` 명시 — `open-in-view: false`라 트랜잭션 밖 LAZY 접근 시 `LazyInitException`.
 
 ---
 
 # 스택
 
-`coastCalculator/coastCalculator/` (Spring Initializr 생성물):
-- Java 25, Spring Boot 4.0.6, Gradle
-- 의존성: Spring Web MVC, Data JPA, Security, Thymeleaf, Validation, Lombok, MySQL Driver, thymeleaf-extras-springsecurity6
-- 패키지: `com.goosepl.coastCalculator`
-- HTTP 클라이언트: 내장 `RestClient` (Jsoup 미사용, 크롤링 폐기)
+Java 25, Spring Boot 4.0.6, Gradle. Spring Web MVC + Data JPA + Security + Thymeleaf + Validation + Lombok + MySQL Driver + thymeleaf-extras-springsecurity6. HTTP 클라이언트는 내장 `RestClient` (Jsoup/크롤링 X). 패키지 루트: `com.goosepl.coastCalculator`.
+
+> Spring Boot 4부터 autoconfigure 모듈 분리 → 새 라이브러리 추가 시 `flyway-core` 단독으론 안 됨, `spring-boot-starter-*` 필수 (자세한 건 troubleshooting TS-1).
 
 ---
 
-# 설계 결정
+# 패키지 구조
 
-| # | 항목 | 결정 |
-|---|---|---|
-| 1 | 데이터 소스 | 네이버 검색 API (쇼핑) — 크롤링 X |
-| 2 | 갱신 전략 | 하이브리드 — DB 캐시 + TTL 만료 시에만 API 호출 |
-| 3 | 인증 | 자체 회원가입/로그인 (ID+PW, BCrypt + Form Login) |
-| 4 | 재료 매칭 | 카테고리 기반 — `Ingredient.category` 필드 |
-| 5 | 저장 데이터 | 제품명, 제품 가격, 1g당 가격, 카테고리 |
-| 6 | 단위 파싱 | `title`에서 정규식으로 `g/kg/mg/ml/l` 추출. 파싱 실패 시 저장 제외 |
-| 7 | TTL | 24시간 (`application.yaml`에서 변경 가능) |
-| 8 | 무게/부피 혼재 | `unit` 필드로 G/ML 구분, 같은 카테고리 내 분리 조회 |
-| 9 | 원가 표시 | 전체 원가 + 인분당 단가 둘 다 |
-| 10 | 재료 선택 정책 | 기본 LOWEST, 사용자가 AVERAGE/HIGHEST로 토글 (`PricingPolicy` enum) |
-| 11 | 카테고리 관리 | 자동 X — 관리자가 개별 제품마다 수동 지정 (제품은 Naver fetch, `category`만 관리자 입력) |
-| 12 | 권한 분리 | `ROLE_USER`는 재료 조회만. Naver fetch / 카테고리 수정 / 삭제는 `ROLE_ADMIN` 전용 |
-| 13 | 익명 접근 | 익명에 홈/상세/검색 공개. 작성/수정/삭제만 인증 필요 |
-| 14 | 검색 범위 | 레시피 이름만 — `Recipe.name LIKE '%keyword%'` |
+```
+config/           SecurityConfig, NaverApiProperties, AffiliateProperties, RetryConfig, WebMvcConfig
+domain/user/      User, Role, UserRepository, UserService, CustomUserDetailsService, DataInitializer,
+                  auth/(LoginAttemptService, AuthenticationEventListener)
+domain/ingredient/ Ingredient, Unit, IngredientRepository, IngredientService
+domain/recipe/    Recipe, RecipeIngredient, RecipeRepository, RecipeService,
+                  cost/(RecipeCostCalculator, PricingPolicy, RecipeCostResult)
+domain/comment/   Comment, CommentService, ...
+domain/like/      RecipeLike, RecipeLikeService
+external/naver/   NaverShoppingClient (interface), Real/MockNaverShoppingClient, parser/UnitParser
+storage/          ImageStorageService, LocalImageStorageService, StorageProperties
+web/              AuthController, HomeController, IngredientController, RecipeController, ...
+web/admin/        AdminIngredientController
+web/error/        GlobalExceptionHandler
+```
 
-## 표준 규칙
-
-- **Naver fetch upsert**: `naverProductId` 존재 시 → `title/price/totalAmount/pricePerGram/image/mallName/link/fetchedAt` 업데이트, **`category`는 절대 건드리지 않음**. 신규 시 → `category=null`로 insert
-- **`category=null` 행은 사용자에게 노출 X** (분류 안 된 raw 데이터)
-- **관리자 시드**: 부팅 시 `admin / admin123!!` (`ROLE_ADMIN`) 멱등 생성 — 이미 있으면 skip, 비밀번호 덮어쓰기 X (운영 중 변경 가능성 보존)
-- **관리자가 수정 가능한 필드**: `category`만. 나머지(title/price/totalAmount/unit/image/mallName/link)는 Naver 응답 그대로
-- **소유자 체크**: 레시피 수정/삭제는 작성자 본인만. 상세 조회는 모두 가능
-- **본인 레시피 편집 분기**: 템플릿에서 `${recipe.user.username == #authentication.name}` 로 수정/삭제 버튼 노출
-- **소유권 위반**: `AccessDeniedException` → 커스텀 403 페이지
+엔티티 필드/관계 일람은 **코드 직접 참조** (`src/main/java/.../domain/`).
 
 ---
 
-# 패키지 구조 (`com.goosepl.coastCalculator` 하위)
+# 절대 규칙 (invariant)
 
-```
-config/                  SecurityConfig, NaverApiProperties
-domain/user/             User, Role, UserRepository, UserService, CustomUserDetailsService, DataInitializer
-domain/ingredient/       Ingredient, Unit (enum), IngredientRepository, IngredientService
-domain/recipe/           Recipe, RecipeIngredient, RecipeRepository, RecipeService
-domain/recipe/cost/      RecipeCostCalculator, PricingPolicy enum
-external/naver/          NaverShoppingClient (인터페이스), RealNaverShoppingClient, MockNaverShoppingClient
-external/naver/parser/   UnitParser
-web/                     AuthController, HomeController, IngredientController (read-only)
-web/admin/               AdminIngredientController
-web/error/               GlobalExceptionHandler
-```
+## Naver fetch upsert (`IngredientService.fetchAndUpsert`)
+- `naverProductId` 존재 시 → `title/price/totalAmount/pricePerGram/image/mallName/link/fetchedAt` 업데이트. **`category`는 절대 안 건드림**.
+- 신규 시 → `category=null` insert. **`category=null` 행은 사용자에게 노출 X** (관리자만).
 
----
+## 관리자
+- `DataInitializer`가 부팅 시 `admin` 멱등 생성. 비밀번호: env `INITIAL_ADMIN_PASSWORD` 우선 → 미설정 시 `SecureRandom` 16자 + WARN 로그 1회. 로컬 개발은 `application-local.yaml`에 `app.admin.initial-password`로 고정.
+- 관리자가 수정 가능한 ingredient 필드는 **`category`만**. 나머지는 Naver 응답 원본.
 
-# 도메인 모델 (JPA 엔티티)
+## 소유권
+- 레시피 수정/삭제는 작성자 본인만. 상세 조회는 누구나.
+- 본인 분기는 템플릿에서 `${recipe.user.username == #authentication.name}`.
+- 위반 시 `AccessDeniedException` → 커스텀 403.
 
-## `User`
-| 필드 | 타입 | 비고 |
-|---|---|---|
-| id | Long | PK, auto |
-| username | String | unique, not null |
-| password | String | BCrypt 해싱 |
-| role | enum (USER, ADMIN) | |
-| createdAt, updatedAt | LocalDateTime | `@CreationTimestamp` |
+## 원가 계산 (`RecipeCostCalculator`)
+- `RecipeIngredient.selectedIngredient != null` → 그 제품 단가만 사용 (정책 무시).
+- null → `IngredientRepository.findByCategoryAndUnit(categoryName, unit)` 후보 → `PricingPolicy` (LOWEST/AVERAGE/HIGHEST)로 단가 결정.
+- 매칭 0건 → "재료 없음" 표시, 총합 제외, 경고 카운트 노출.
 
-## `Ingredient` (네이버 쇼핑 결과 + 관리자 카테고리)
-| 필드 | 타입 | 비고 |
-|---|---|---|
-| id | Long | PK |
-| naverProductId | String | unique — Naver `productId`, upsert 키 |
-| title | String | 제품명 (Naver 응답 원본) |
-| category | String | **nullable** — 관리자가 개별 지정. fetch 직후 비어있음 |
-| price | int | 제품 가격 (원) |
-| totalAmount | BigDecimal | `UnitParser`가 `title`에서 추출 |
-| unit | enum (G, ML) | 무게/부피 구분 |
-| pricePerGram | BigDecimal | `price / totalAmount`, 저장 시 계산 (scale=4) |
-| image, mallName, link | String | Naver 응답 메타데이터 |
-| fetchedAt | LocalDateTime | Naver fetch 시각, 관리자 UI에 표시 |
-| createdAt, updatedAt | LocalDateTime | |
+## selectedIngredient 검증 (T3-17)
+- 사용자가 "이 제품으로 고정" 선택 시 행 categoryName(대소문자 무시)/unit 일치해야 저장. 불일치/카테고리 미부여/미존재 ID → `IllegalArgumentException`으로 저장 거부 (자동 덮어쓰기·무시 X).
 
-## `Recipe`
-| 필드 | 타입 | 비고 |
-|---|---|---|
-| id | Long | PK |
-| user | User | FK, LAZY |
-| name | String | 레시피명 |
-| servings | int | 인분 |
-| createdAt, updatedAt | LocalDateTime | |
+## TTL 하이브리드
+- `viewByCategory(c)`: `findByCategory(c)` 반환. 비었거나 `fetchedAt < now - 24h` 있으면 `fetchAndUpsert(c)` 트리거 후 재조회. TTL 24h.
 
-## `RecipeIngredient` (Recipe ↔ Ingredient 중간)
-| 필드 | 타입 | 비고 |
-|---|---|---|
-| id | Long | PK |
-| recipe | Recipe | FK, LAZY |
-| categoryName | String | 사용자가 입력한 재료명 = 카테고리 (자유 입력) |
-| selectedIngredient | Ingredient | FK, nullable — 명시적 선택 시만 |
-| amount | BigDecimal | 필요한 양 |
-| unit | enum (G, ML) | 사용자가 카테고리에 맞춰 선택 |
-| ordering | int | 표시 순서 |
+## Naver 키 미발급 대응
+- `NaverShoppingClient` 인터페이스 → Real/Mock 구현. `naver.api.mock-enabled=true`면 Mock 활성.
+- Real에는 connect 5s / read 10s 타임아웃 + Spring Retry 3회 지수 backoff(1→2→4s) + `@Recover`로 빈 리스트 fallback (T2-9).
 
-※ `amount` + `unit` 분리로 부피 재료(물/간장/식용유)도 원래 단위로 입력 가능. 원가 계산 시 같은 `unit`인 Ingredient만 후보로.
+## 보안
+- 비밀번호: 최소 8자 + 영문/숫자 (`@Pattern`).
+- Brute force: username당 5회 실패 → 15분 잠금 (`LoginAttemptService`, 메모리 `ConcurrentHashMap`). 15분 경과 시 자동 해제.
+
+## 화면 정책
+- **JS 없음 정책** (Open Q #24) — 모든 인터랙션은 폼 POST + redirect. 동적 UI는 폼 GET 시점에 모델로 미리 담아 렌더링 (예: T3-17 selectedIngredient `<optgroup>`).
+- 이미지 업로드: jpg/jpeg/png/webp 화이트리스트, 5MB. 로컬 `./uploads/` + Spring `/uploads/**` 정적 서빙.
 
 ---
 
-# 핵심 비즈니스 흐름
-
-## 흐름 1: 관리자 — Naver fetch + 카테고리 지정
-
-```
-GET  /admin/ingredients                     → 전체 목록 (미지정 우선 옵션)
-GET  /admin/ingredients/fetch               → Naver 검색 폼
-POST /admin/ingredients/fetch               → IngredientService.fetchAndUpsert(keyword)
-GET  /admin/ingredients/{id}/edit           → 카테고리 수정 폼
-POST /admin/ingredients/{id}                → 카테고리 업데이트
-POST /admin/ingredients/{id}/delete         → 삭제
-```
-
-### `IngredientService.fetchAndUpsert(keyword)`
-```
-items = naverClient.search(keyword)
-parsed = items.map { UnitParser.parse(title) → totalAmount/unit 추출 }
-parsed.filter { 파싱 성공 }.forEach { item ->
-  existing = repo.findByNaverProductId(item.naverProductId)
-  if existing != null:
-    existing.title/price/totalAmount/unit/pricePerGram/image/mallName/link 갱신
-    existing.fetchedAt = now
-    // category 는 건드리지 않음 ← 핵심 규칙
-  else:
-    insert new (category=null, fetchedAt=now)
-}
-```
-
-## 흐름 1-B: 사용자 재료 조회 (TTL 하이브리드)
-
-```
-GET /ingredients                  → 카테고리 지정된 재료 전체 목록
-GET /ingredients?category=밀가루   → IngredientService.viewByCategory("밀가루")
-```
-
-`viewByCategory(category)`:
-1. `rows = repo.findByCategory(category)`
-2. 비었거나 stale(`fetchedAt < now - 24h`) 있으면 → `fetchAndUpsert(category)` 트리거
-3. 다시 `repo.findByCategory(category)` 반환
-
-## 흐름 2: 단위 파싱 (`UnitParser`)
-
-- 정규식: `(\d+(?:[.,]\d+)?)\s*(kg|g|mg|L|l|ml)\b` (case-insensitive)
-- kg → g, L → ml 정규화
-- 매칭 여러 개 (예: "1kg×3봉"): 첫 매칭만 (추후 곱셈 처리 확장 여지)
-- 매칭 실패 → skip
-- `pricePerGram = price / totalAmount` (BigDecimal, scale=4)
-
-## 흐름 3: 원가 계산 (`RecipeCostCalculator`)
-
-```
-입력: Recipe, PricingPolicy (LOWEST 기본 / AVERAGE / HIGHEST)
-
-각 RecipeIngredient에 대해:
-  if selectedIngredient != null:
-    pricePerGram = selectedIngredient.pricePerGram          // 직접 고른 경우 정책 무시
-  else:
-    candidates = ingredientRepo.findByCategoryAndUnit(categoryName, unit)
-    pricePerGram = switch (policy):
-      LOWEST   -> min(candidates.pricePerGram)
-      AVERAGE  -> avg(candidates.pricePerGram)
-      HIGHEST  -> max(candidates.pricePerGram)
-  cost = pricePerGram × amount
-
-총합 = Σ cost
-인분당 = 총합 / servings
-```
-
-**매칭 실패** (해당 `category/unit`로 등록된 Ingredient 0건): "재료 없음" 표시, 총합에서 제외, 경고 카운트 노출.
-
-## 흐름 4: 관리자 시드 (`DataInitializer`)
-
-```
-if (!userRepository.existsByUsername("admin")):
-    User admin = User.builder()
-        .username("admin")
-        .password(passwordEncoder.encode("admin123!!"))
-        .role(Role.ADMIN)
-        .build()
-    userRepository.save(admin)
-```
-
-## 라우팅 (레시피 허브)
+# 핵심 라우팅 (빠른 ref)
 
 | URL | 역할 |
 |---|---|
-| `GET /` | 허브: 검색바 + 최근 레시피 N개 (`createdAt DESC`). `?q=keyword`로 검색 |
-| `GET /recipes` | 내 레시피 목록 |
-| `GET /recipes/new` | 신규 작성 (인증 필요) |
-| `POST /recipes` | 생성 |
-| `GET /recipes/{id}` | 누구나 상세 조회. 소유자에게만 수정/삭제 버튼 |
-| `GET /recipes/{id}/edit` | 편집 폼 (소유자만) |
-| `POST /recipes/{id}` | 업데이트 (소유자만) → detail로 redirect |
-| `POST /recipes/{id}/delete` | 삭제 (소유자만) |
+| `GET /` | 허브: 검색 + 최근 레시피 N개. `?q=keyword` |
+| `GET /recipes/{id}` | 누구나 상세. 소유자에게만 수정/삭제 버튼 |
+| `GET /recipes/new`, `/{id}/edit`, `POST /{id}/delete` | 인증 / 소유자만 |
+| `GET /admin/**` | `ROLE_ADMIN` |
+| `GET /ingredients` | 카테고리 부여된 재료만 (`category != null`). 익명 OK |
+| `POST /recipes/{id}/like`, `POST /recipes/{id}/comments` | 인증 사용자 |
 
-`RecipeRepository`:
-- `findTopNByOrderByCreatedAtDesc(Pageable)` 또는 `findAll(Pageable)` with Sort
-- `findByNameContainingIgnoreCaseOrderByCreatedAtDesc(String, Pageable)` — 검색
-- 두 쿼리에 `@EntityGraph(attributePaths={"user","ingredients"})` 적용
-
-`RecipeService`:
-- `findRecent(int limit)` / `searchByName(String, int)` — 공개
-- `findForView(Long id)` — 공개 상세 (소유권 체크 X, ingredients/user EAGER fetch)
-- `findMine` — 편집·삭제 전용
+전체 보안 룰은 `SecurityConfigTest`(16 케이스)가 명세이자 검증.
 
 ---
 
-# 외부 의존성 / 설정
+# 외부 의존성
 
-## MySQL — Docker
+- **MySQL**: Docker, 호스트 3309 ↔ 컨테이너 3306, 스키마 `coast_calculator`. 실행 `docker compose up -d`.
+- **Naver Open API**: `application-local.yaml`(`.gitignore`)에 키 + `--spring.profiles.active=local`. 키 미발급 시 Mock 자동 활성.
+- **GHCR**: CI(`.github/workflows/ci.yml`)가 main push 시 `ghcr.io/goospel/coastcalculator:latest` + `sha-*` 두 태그 푸시. 권한은 패키지 settings에서 repo Write access 필요 (TS-10).
 
-`docker-compose.yml` (프로젝트 루트):
-```yaml
-services:
-  mysql:
-    image: mysql:8.4
-    container_name: coast-calculator-mysql
-    restart: unless-stopped
-    environment:
-      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-rootpass}
-      MYSQL_DATABASE: coast_calculator
-      MYSQL_USER: ${DB_USERNAME:-coast}
-      MYSQL_PASSWORD: ${DB_PASSWORD:-coastpass}
-    ports:
-      - "3309:3306"   # 호스트 3309 (3306 충돌 회피)
-    volumes:
-      - coast-mysql-data:/var/lib/mysql
-    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
-
-volumes:
-  coast-mysql-data:
-```
-실행: `docker compose up -d`
-
-## `application.yaml`
-
-```yaml
-spring:
-  datasource:
-    url: jdbc:mysql://localhost:3309/coast_calculator?serverTimezone=Asia/Seoul&characterEncoding=UTF-8
-    username: ${DB_USERNAME:coast}
-    password: ${DB_PASSWORD:coastpass}
-    driver-class-name: com.mysql.cj.jdbc.Driver
-  jpa:
-    hibernate:
-      ddl-auto: update         # 초기 개발은 update, 운영 진입 시 validate
-    properties:
-      hibernate:
-        format_sql: true
-    show-sql: true
-    open-in-view: false
-
-naver:
-  api:
-    base-url: https://openapi.naver.com/v1/search/shop.json
-    client-id: ${NAVER_CLIENT_ID:}
-    client-secret: ${NAVER_CLIENT_SECRET:}
-    ttl-hours: 24
-    display: 100         # 네이버 최대 100
-    mock-enabled: true   # 키 발급 전엔 true
-
-server:
-  error:
-    include-message: never
-    include-stacktrace: never
-    include-binding-errors: never
-    whitelabel:
-      enabled: false
-```
-
-API 키는 `application-local.yaml` (.gitignore)로 분리. 실행: `.\gradlew bootRun --args='--spring.profiles.active=local'`.
-
-## 네이버 API 키 미발급 대응
-
-`NaverShoppingClient`를 인터페이스로 추상화:
-- `RealNaverShoppingClient` — 실제 호출, `@ConditionalOnProperty(name="naver.api.mock-enabled", havingValue="false")`
-- `MockNaverShoppingClient` — 더미 응답 (밀가루/설탕/소금 등 5~10개), `@ConditionalOnProperty(name="naver.api.mock-enabled", havingValue="true", matchIfMissing=true)`
-
-키 발급: https://developers.naver.com/ → 앱 등록 → "검색" API 권한 → Client ID/Secret → `application-local.yaml` 주입 + `mock-enabled: false`.
+설정 전문은 코드 직접 참조: `src/main/resources/application.yaml`, `docker-compose.yml`, `Dockerfile`, `.github/workflows/ci.yml`.
 
 ---
 
-# 에러 처리
+# 에러 처리 (`web/error/GlobalExceptionHandler`)
 
-`web/error/GlobalExceptionHandler` (`@ControllerAdvice`):
-- `IllegalArgumentException` — UserService/RecipeService/IngredientService 검증 실패 → WARN
-- `AccessDeniedException` — 소유자 체크 실패, Spring Security 403 → 403 페이지
-- `IllegalStateException` — 정상 흐름에선 발생 X → ERROR
-- `MethodArgumentNotValidException` — `@Valid` 실패 (JSON API 대비)
-- `NoResourceFoundException` (Spring 6+) — 404
-- 그 외 `Exception` — 500, ERROR
+`@ControllerAdvice`로 통합. `IllegalArgumentException`(WARN), `AccessDeniedException`(403), `IllegalStateException`(ERROR), `MethodArgumentNotValidException`(@Valid), `NoResourceFoundException`(404), 기타 `Exception`(500, ERROR).
 
-에러 페이지 (`templates/error/{status}.html` 위치 시 Spring Boot 자동 매칭):
-- `403.html`, `404.html`, `500.html`, `error.html` (fallback)
+에러 페이지: `templates/error/{403,404,500,error}.html`. `server.error.include-message: never` (운영 안전성).

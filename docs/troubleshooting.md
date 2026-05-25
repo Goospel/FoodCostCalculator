@@ -328,3 +328,138 @@ class RealNaverShoppingClientRetryTest {
 - 외부 HTTP 의존성 테스트는 WireMock 없이도 가능 — JDK `HttpServer`로 충분
 - `@DynamicPropertySource`는 동적 인프라(랜덤 포트, Testcontainers IP) 주입의 표준 방법
 - record 기반 응답 DTO 테스트할 때 stub 응답은 **모든 필드 포함**해야 — 누락 필드가 deserialization 실패 일으키면 디버깅 어렵다
+
+---
+
+## TS-9. Windows에서 `bootRun` 8080 포트 bind 실패 — listening 프로세스가 없는데도
+
+**날짜**: 2026-05-23 / 관련 작업: T3-17 부팅 검증
+
+### 증상
+- `./gradlew bootRun` 실행 시 Tomcat이 `8080 already in use` 비슷한 에러로 시작 실패
+- 그런데 `Get-NetTCPConnection -LocalPort 8080 -State Listen` 으로 보면 **listening 프로세스가 없음**
+- `netstat -ano | findstr :8080` 도 비어있음
+
+겉으로는 비어있는데 bind 실패 — 가장 헷갈리는 상태.
+
+### 진단
+```powershell
+# 가상화 컴포넌트가 예약한 동적 포트 범위 확인
+netsh int ipv4 show excludedportrange protocol=tcp
+```
+출력에서 **8080이 포함된 범위**가 있는지 확인:
+```
+Start Port    End Port
+----------    --------
+      8060        8159   ← 8080 여기 들어감
+      9481        9580
+      ...
+```
+
+### 원인 (한 줄)
+**Hyper-V / WSL2 / Docker Desktop이 부팅 시 동적 포트 범위를 무작위로 예약**한다. 예약된 범위에 8080이 걸리면 일반 프로세스가 bind 불가 (listening 없이도). Windows 10 1809 이후 `winnat`/`hns` 서비스가 이 동작을 자주 함.
+
+### 해결
+**로컬 개발만 영향받는 방식 — `application-local.yaml`에 다른 포트 명시**:
+```yaml
+# 예약 범위(8060-8159) 밖이고 다른 충돌 없는 포트
+server:
+  port: 8181
+```
+
+`application-local.yaml`은 `.gitignore`에 들어가 있어 Docker/CI/운영(`application.yaml` 기본 8080)에 영향 없음.
+
+선택할 포트 검증 스니펫:
+```powershell
+$ranges = @(); netsh int ipv4 show excludedportrange protocol=tcp `
+  | Select-String '^\s*(\d+)\s+(\d+)' `
+  | ForEach-Object { $ranges += ,@([int]$_.Matches[0].Groups[1].Value, [int]$_.Matches[0].Groups[2].Value) }
+foreach ($p in 8181, 8160, 9000, 9090) {
+  $inExcl = $false; foreach ($r in $ranges) { if ($p -ge $r[0] -and $p -le $r[1]) { $inExcl = $true; break } }
+  $listening = Get-NetTCPConnection -LocalPort $p -State Listen -ErrorAction SilentlyContinue
+  $status = if ($inExcl) { "EXCLUDED" } elseif ($listening) { "IN USE" } else { "FREE" }
+  "Port $p`: $status"
+}
+```
+
+근본 해결(권하지 않음): 관리자 PowerShell에서 `netsh int ipv4 set dynamic tcp start=49152 num=16384` + 재부팅. 다른 가상화 도구 동작에 영향 줄 수 있어 부작용 큼.
+
+### 교훈
+- Windows 개발 환경에서 "포트 비어있는데 bind 실패" = 거의 100% **excluded port range** 의심
+- listening 안 잡힌다고 안 쓰는 게 아니다 — `netsh ... excludedportrange`로 따로 확인
+- 8080은 8060-8159 범위에 자주 잡히는 단골. 로컬 개발은 8181/9000/9090 같은 범위 밖 포트 권장
+- yaml 분리 정책 덕에 1줄 추가로 끝남 — 운영 yaml 안 건드림
+
+---
+
+## TS-10. GHCR — 첫 push는 됐는데 두 번째 push가 `denied: denied` 로 실패
+
+**날짜**: 2026-05-23 / 관련 작업: T3-17 PR 머지 후 build-and-push job 실패
+
+### 증상
+- `.github/workflows/ci.yml`의 `build-and-push` job, **첫 번째 머지(PR #1)에선 GHCR push 성공**
+- 같은 워크플로우, 같은 권한 설정인데 **두 번째 머지(PR #2)부터 Login to GHCR 단계에서 실패**
+- 로그:
+  ```
+  Logging into ghcr.io...
+  Error response from daemon: Get "https://ghcr.io/v2/": denied: denied
+  ```
+- 권한은 분명 `packages: write` 부여, `username: ${{ github.actor }}`, `password: ${{ secrets.GITHUB_TOKEN }}`
+
+### 원인 (한 줄)
+**첫 번째 push로 생성된 user-level 패키지가 source repository와 자동 link되지 않은 상태**. 첫 push는 GITHUB_TOKEN에 자동 허용되지만, 두 번째 이후는 패키지 자체의 access policy로 결정 → policy가 비어있으면 같은 GITHUB_TOKEN도 거부.
+
+### 해결 (한 번만 하면 됨)
+1. **패키지 페이지** 접근: https://github.com/&lt;owner&gt;?tab=packages → 해당 패키지 클릭
+2. **Package settings** (우측 사이드바)
+3. **Manage Actions access** 섹션 → "Add Repository" 클릭 → source repo 선택 → **Role: Write**
+4. (있으면) **Inherit access from repository** 토글 ON — 패키지 ↔ repo 정식 link로 권한 자동 상속
+5. GitHub Actions 실패한 run에서 **Re-run failed jobs** → 통과
+
+### 예방 (다음 새 패키지 만들 때)
+- `docker/metadata-action`이 자동으로 `org.opencontainers.image.source` 라벨 추가하긴 하지만, 그것만으론 자동 link 안 됨
+- 새 GHCR 패키지 첫 push 직후 위 settings 한 번 들어가서 link 설정 권장
+
+### 교훈
+- "첫 push만 되고 그 다음부터 거부"는 **GHCR 패키지 권한 정책 누락의 전형 증상**
+- GITHUB_TOKEN은 자동 무한 권한이 아니다 — 패키지가 만들어진 뒤엔 패키지 자체 정책이 우선
+- 워크플로우 권한(`permissions: packages: write`)만 보고 안심 X — repository 차원 + 패키지 차원 둘 다 봐야 함
+
+---
+
+## TS-11. PowerShell에서 native exe(`gh`)에 multi-line body string 전달 시 인자가 쪼개짐
+
+**날짜**: 2026-05-23 / 관련 작업: PR 본문 자동 작성
+
+### 증상
+- PowerShell에서 `gh pr create --body "..."` 실행 시 body 내 공백/괄호/한국어 토큰이 별도 인자로 쪼개짐:
+  ```
+  unknown arguments ["제품" "(선택) 추가..." "..." "..."]
+  please quote all values that have spaces
+  ```
+- 큰따옴표로 감싸고 `@'...'@` here-string으로 만들었는데도 같은 에러
+
+### 원인
+PowerShell이 native executable에 인자를 전달할 때 quoting/escaping이 cmd.exe 시절 규칙과 충돌 — 특히 body에 백틱, 괄호, 콜론, 한국어 어절 경계가 섞이면 PowerShell parser가 인자 경계를 잘못 추론.
+
+### 해결 — stdin 사용 (`--body-file -`)
+```powershell
+$body = @'
+multi-line content with
+괄호 (그리고) 콜론: 모두 안전
+'@
+$body | & "C:\Program Files\GitHub CLI\gh.exe" pr create `
+    --repo Owner/Repo `
+    --title "title" `
+    --body-file -
+```
+
+`--body-file -` 는 stdin으로 body 읽음. PowerShell이 텍스트를 그대로 pipe로 흘려보내니 quoting 문제 자체가 없음.
+
+### 추가 함정
+- `& "C:\Program Files\GitHub CLI\gh.exe" ...` 실행 시 **현재 작업 디렉토리가 git repo가 아니면** `could not determine the current branch` 에러. PowerShell 세션 cwd를 repo 안으로 옮기고 호출 (`Set-Location` 또는 `--repo` 인자 명시).
+
+### 교훈
+- PowerShell + native exe + multi-line/특수문자 body = stdin이 정답
+- here-string `@'...'@`(literal) vs `@"..."@`(interpolated) 구분 — body에 `$`가 있으면 literal로
+- `gh` 명령은 가능한 한 `--repo OWNER/REPO`를 명시 — cwd 의존 에러 회피
