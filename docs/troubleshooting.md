@@ -138,7 +138,7 @@ o.f.core.internal.command.DbBaseline : Successfully baselined schema with versio
 ### 교훈
 - **`open-in-view: false`는 안전하지만 비용이 있다** — 모든 컬렉션 접근 경로에 EntityGraph 또는 JOIN FETCH 명시 필요
 - 증상이 컨트롤러에서 정상이고 템플릿 렌더링 중에만 나면 100% LAZY 초기화 문제
-- `improvements.md` T2-11 (N+1 점검)에 잔존 위험 추적 중
+- ~~잔존 위험은 `improvements.md` T2-11에서 추적~~ → **T2-11에서 정리 완료 (2026-05-25)**. ToMany + Pageable 조합은 **two-step 쿼리(ID Page → IN 절 + EntityGraph)** 패턴으로 in-memory paging 회피. `findMine`의 `.getIngredients().size()` 강제 초기화도 `findWithUserAndIngredientsById` EntityGraph 메서드로 대체. 자세한 건 plan.md T2-11.
 
 ---
 

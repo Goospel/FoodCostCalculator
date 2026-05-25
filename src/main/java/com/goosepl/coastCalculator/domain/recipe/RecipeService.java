@@ -9,11 +9,15 @@ import com.goosepl.coastCalculator.domain.user.UserRepository;
 import com.goosepl.coastCalculator.storage.ImageStorageService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
+
+import java.util.List;
+import java.util.function.Function;
 
 @Service
 @RequiredArgsConstructor
@@ -24,27 +28,54 @@ public class RecipeService {
     private final IngredientRepository ingredientRepository;
     private final ImageStorageService imageStorageService;
 
-    // T2-7: 내 레시피 목록 페이징
+    // T2-7 + T2-11: 내 레시피 목록 — two-step 쿼리(ID Page → entity fetch)로 in-memory paging 회피
     @Transactional(readOnly = true)
     public Page<Recipe> findMyRecipes(String username, Pageable pageable) {
         User user = loadUser(username);
-        return recipeRepository.findByUserOrderByUpdatedAtDesc(user, pageable);
+        return assemblePage(
+                recipeRepository.findIdsByUserOrderByUpdatedAtDesc(user, pageable),
+                recipeRepository::findAllWithDetailsByIdInOrderByUpdatedAtDesc,
+                pageable
+        );
     }
 
-    // T2-7: 홈 페이지 최근 레시피 페이징
+    // T2-7 + T2-11: 홈 페이지 최근 레시피
     @Transactional(readOnly = true)
     public Page<Recipe> findRecent(Pageable pageable) {
-        return recipeRepository.findAllByOrderByCreatedAtDesc(pageable);
+        return assemblePage(
+                recipeRepository.findIdsAllByCreatedAtDesc(pageable),
+                recipeRepository::findAllWithDetailsByIdInOrderByCreatedAtDesc,
+                pageable
+        );
     }
 
-    // T2-7: 검색 결과 페이징. blank 키워드는 findRecent와 동일 결과
+    // T2-7 + T2-11: 검색. blank 키워드는 findRecent와 동일 결과
     @Transactional(readOnly = true)
     public Page<Recipe> searchByName(String keyword, Pageable pageable) {
         if (keyword == null || keyword.isBlank()) {
             return findRecent(pageable);
         }
-        return recipeRepository.findByNameContainingIgnoreCaseOrderByCreatedAtDesc(
-                keyword.trim(), pageable);
+        return assemblePage(
+                recipeRepository.findIdsByNameContainingIgnoreCaseOrderByCreatedAtDesc(keyword.trim(), pageable),
+                recipeRepository::findAllWithDetailsByIdInOrderByCreatedAtDesc,
+                pageable
+        );
+    }
+
+    /**
+     * T2-11: two-step 쿼리 조립 헬퍼.
+     *   1) idPage: Page&lt;Long&gt; (count + ID select, in-memory paging 미발생)
+     *   2) entityFetcher.apply(ids): IN 절 + EntityGraph + ORDER BY로 entity 페치
+     *   3) PageImpl로 재조합 (totalElements는 idPage 그대로 사용)
+     *
+     * 빈 페이지면 entity 쿼리는 호출하지 않는다 (불필요한 IN () 쿼리 회피).
+     */
+    private Page<Recipe> assemblePage(Page<Long> idPage, Function<List<Long>, List<Recipe>> entityFetcher, Pageable pageable) {
+        if (idPage.isEmpty()) {
+            return new PageImpl<>(List.of(), pageable, idPage.getTotalElements());
+        }
+        List<Recipe> content = entityFetcher.apply(idPage.getContent());
+        return new PageImpl<>(content, pageable, idPage.getTotalElements());
     }
 
     @Transactional(readOnly = true)
@@ -53,15 +84,15 @@ public class RecipeService {
                 .orElseThrow(() -> new IllegalArgumentException("레시피를 찾을 수 없습니다: id=" + id));
     }
 
+    // T2-11: findById + .getIngredients().size() 강제 초기화 패턴 제거.
+    // EntityGraph로 user + ingredients를 한 번에 페치 → 트랜잭션 밖 LazyInit 안전.
     @Transactional(readOnly = true)
     public Recipe findMine(Long id, String username) {
-        Recipe recipe = recipeRepository.findById(id)
+        Recipe recipe = recipeRepository.findWithUserAndIngredientsById(id)
                 .orElseThrow(() -> new IllegalArgumentException("레시피를 찾을 수 없습니다: id=" + id));
         if (!recipe.isOwnedBy(username)) {
             throw new AccessDeniedException("이 레시피에 접근할 권한이 없습니다");
         }
-        // ingredients lazy 컬렉션을 트랜잭션 내에서 초기화
-        recipe.getIngredients().size();
         return recipe;
     }
 

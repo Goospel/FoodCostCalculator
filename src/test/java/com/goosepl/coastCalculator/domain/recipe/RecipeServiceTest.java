@@ -77,7 +77,7 @@ class RecipeServiceTest {
     @Test
     @DisplayName("findMine: 본인이 만든 레시피는 정상 반환")
     void findMineReturnsRecipeWhenOwner() {
-        given(recipeRepository.findById(1L)).willReturn(Optional.of(aliceRecipe));
+        given(recipeRepository.findWithUserAndIngredientsById(1L)).willReturn(Optional.of(aliceRecipe));
 
         Recipe result = recipeService.findMine(1L, "alice");
 
@@ -87,7 +87,7 @@ class RecipeServiceTest {
     @Test
     @DisplayName("findMine: 타인의 레시피 접근 시 AccessDeniedException")
     void findMineThrowsWhenNotOwner() {
-        given(recipeRepository.findById(1L)).willReturn(Optional.of(aliceRecipe));
+        given(recipeRepository.findWithUserAndIngredientsById(1L)).willReturn(Optional.of(aliceRecipe));
 
         assertThatThrownBy(() -> recipeService.findMine(1L, "bob"))
                 .isInstanceOf(AccessDeniedException.class)
@@ -97,7 +97,7 @@ class RecipeServiceTest {
     @Test
     @DisplayName("findMine: 존재하지 않는 ID 접근 시 IllegalArgumentException")
     void findMineThrowsWhenNotFound() {
-        given(recipeRepository.findById(999L)).willReturn(Optional.empty());
+        given(recipeRepository.findWithUserAndIngredientsById(999L)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> recipeService.findMine(999L, "alice"))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -128,7 +128,7 @@ class RecipeServiceTest {
     @Test
     @DisplayName("delete: 본인이 아니면 AccessDeniedException (findMine 보호가 자동 적용)")
     void deleteByNonOwnerIsRejected() {
-        given(recipeRepository.findById(1L)).willReturn(Optional.of(aliceRecipe));
+        given(recipeRepository.findWithUserAndIngredientsById(1L)).willReturn(Optional.of(aliceRecipe));
 
         assertThatThrownBy(() -> recipeService.delete(1L, "bob"))
                 .isInstanceOf(AccessDeniedException.class);
