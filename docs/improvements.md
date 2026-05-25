@@ -165,9 +165,9 @@
 - [x] T1-3. 비밀번호 정책 강화 + brute force 방어 — 해결일: 2026-05-21
   - 해결 PR/커밋: feat: T1-3 — 비밀번호 8자+영숫자 검증 + 메모리 카운터 잠금
   - 비고: **(1)** `SignupRequest.password`에 `@Size(min=8)` + `@Pattern("(?=.*[A-Za-z])(?=.*\\d).+")` — 4자 가능 → 8자 영숫자 필수. signup.html에 정책 안내. **(2)** `LoginAttemptService` (ConcurrentHashMap 기반) — username당 5회 실패 시 15분 잠금, 자동 해제. `AuthenticationEventListener`가 Spring Security의 `AuthenticationFailureBadCredentialsEvent`/`AuthenticationSuccessEvent`를 구독해 카운터 갱신. **(3)** `CustomUserDetailsService`가 `isBlocked(username)` 호출해서 `.accountLocked(true)`로 반환 → Spring이 `LockedException` 발생. `SecurityConfig.authenticationFailureHandler`가 `LockedException` 분기로 `/login?locked` redirect, login.html에 "15분 후 다시 시도" 메시지. **미해결**: IP 기반 차단(Bucket4j), captcha, 비번 재설정(T3-14).
-- [ ] T1-4. 시크릿 외부 저장소 연동 — 해결일: -
-  - 해결 PR/커밋: -
-  - 비고: (부분 진척, 2026-05-21) `application-local.yaml` + `.gitignore`로 로컬 개발 시크릿 분리 완료. 운영 등급 외부 저장소(Vault/AWS Secrets Manager/K8s Secret) 연동은 미완료
+- [x] T1-4. 시크릿 외부 저장소 연동 — 해결일: 2026-05-25 (옵션 A — 정책 강화, 외부 저장소 통합은 의도적 보류)
+  - 해결 PR/커밋: feat: T1-4 시크릿 외부화 정책 강화 (운영 프로파일 + ProductionSecretsValidator + 운영 가이드)
+  - 비고: 사용자 결정(옵션 A): 코드 최소 변경 + 부팅 검증 + 운영 가이드. AWS SM/Vault 실제 통합은 인스턴스 ≥ 2 또는 시크릿 ≥ 10 시점으로 보류. **(1)** `application-prod.yaml` 신규 — `SPRING_PROFILES_ACTIVE=prod`로 활성. show-sql/format_sql=false, thymeleaf.cache=true, mock-enabled 기본 false. **(2)** `ProductionSecretsValidator` (`@Profile("prod")` + `@PostConstruct`): DB 자격증명 디폴트(`coast`/`coastpass`) 거부 / `INITIAL_ADMIN_PASSWORD` 빈 채 거부(랜덤 비번 로그 노출 금지) / mock=false인데 NAVER_CLIENT_ID/SECRET 비면 거부. 위반 모두 모아 IllegalStateException(한 번에 표시). **(3)** `docker-compose.prod.yml`에 `SPRING_PROFILES_ACTIVE: prod` 자동 주입. **(4)** `.env.prod.example` 보강 — `[REQUIRED]` 마커 + `__REPLACE_WITH_OPENSSL_RAND_24__` placeholder + 안내. **(5)** `deployment.md § 9` 신설 — 파일 권한(chmod 600) / systemd EnvironmentFile / GitHub Actions Secrets / 시크릿 회전 절차 / 외부 저장소 통합 hook(AWS SM `spring.config.import=optional:aws-secretsmanager:` + Vault + SOPS). **테스트**: ProductionSecretsValidatorTest 12(happy/db/admin/naver 분기) = **총 119(이전 107 → +12)**. **의도적 비포함**: AWS SM/Vault 실 도입(과대투자), 시크릿 회전 자동화(분기 1회 빈도라 ROI 낮음), SOPS 암호화 git 저장(현재 .env는 EC2 위에서만 다루는 정책).
 - [x] T1-5. 글로벌 ExceptionHandler + 에러 페이지 — 해결일: 2026-05-21
   - 해결 PR/커밋: feat: Task 6 마무리 (전역 예외 처리 + 에러 페이지)
   - 비고: `web/error/GlobalExceptionHandler`로 AccessDenied/NoResource/IllegalArgument/IllegalState/Generic 매핑. `templates/error/{403,404,500,error}.html` 커스텀 페이지. `server.error.include-message=never`로 운영 안전성 확보.

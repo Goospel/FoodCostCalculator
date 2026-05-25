@@ -222,13 +222,103 @@ docker compose -f docker-compose.prod.yml restart app
 
 ---
 
-## 9. 다음 단계 (Stage B 진입 시 추가 작업)
+## 9. 시크릿 관리 (T1-4)
+
+운영에서는 `SPRING_PROFILES_ACTIVE=prod` (docker-compose.prod.yml이 자동 주입)로 `ProductionSecretsValidator`가 활성화됩니다. 부팅 시 다음을 검증하고, 위반 시 즉시 부팅 중단:
+
+1. DB 자격증명이 디폴트(`coast`/`coastpass`) 그대로면 거부 — `DB_USERNAME`/`DB_PASSWORD` 명시 필수
+2. `INITIAL_ADMIN_PASSWORD`가 비어있으면 거부 — 운영에서 랜덤 비번 로그 노출은 회전 어려움 + 로그 유출 시 즉시 침해라 금지
+3. `naver.api.mock-enabled=false`인데 `NAVER_CLIENT_ID`/`SECRET`가 비어있으면 거부
+
+위반 시 부팅 로그에 모든 위반 사항이 한 번에 표시됩니다 (여러 환경변수가 빠졌을 때 한 번에 파악).
+
+### 9-1. EC2에서 시크릿 파일 권한
+
+`.env.prod`는 비번을 평문으로 담으므로 파일 자체 권한을 강하게:
+
+```bash
+# 소유자만 읽기/쓰기 (chmod 600)
+chmod 600 .env.prod
+# 소유자도 ubuntu만 (또는 root만)
+sudo chown ubuntu:ubuntu .env.prod
+
+# 백업 잡이 의도치 않게 카피하지 않게 — find로 점검
+find /home/ubuntu -name ".env*" -ls
+```
+
+### 9-2. systemd 사용 시 (Docker 안 쓰는 경우 — 참고)
+
+`docker compose`가 아닌 시스템 java 실행이라면 systemd `EnvironmentFile`로 주입:
+
+```ini
+# /etc/systemd/system/coastcalculator.service
+[Service]
+EnvironmentFile=/etc/coastcalculator/secrets.env
+ExecStart=/usr/bin/java -jar /opt/coastcalculator/app.jar
+User=app
+Group=app
+```
+
+```bash
+# 권한 — root:app, group read-only (app 사용자만 읽음)
+sudo chown root:app /etc/coastcalculator/secrets.env
+sudo chmod 640 /etc/coastcalculator/secrets.env
+```
+
+### 9-3. GitHub Actions Secrets
+
+CI/CD에서 쓰는 시크릿은 GitHub repo Settings → Secrets and variables → Actions에 등록:
+
+| 시크릿 | 용도 | 설정 위치 |
+|---|---|---|
+| `GITHUB_TOKEN` | GHCR 이미지 push (자동 생성됨) | 기본 |
+| (선택) `EC2_SSH_KEY` | 배포 자동화 시 EC2 ssh | 수동 등록 |
+| (선택) `EC2_HOST` | EC2 IP/도메인 | 수동 등록 |
+
+운영 시크릿(`DB_PASSWORD`, `NAVER_*` 등)은 **CI에 노출하지 말 것** — EC2 위에서만 다룸. CI는 빌드+이미지 push만, 시크릿은 운영 서버에 직접.
+
+### 9-4. 시크릿 회전 절차
+
+| 시크릿 | 회전 주기 | 절차 |
+|---|---|---|
+| `INITIAL_ADMIN_PASSWORD` | 분기 1회 또는 의심 사고 시 | `.env.prod` 갱신 → 컨테이너 재시작 → admin 로그인 후 비번 변경 (DB에 BCrypt 해시 갱신) |
+| `DB_PASSWORD` | 6개월 1회 | (1) MySQL에서 사용자 비번 변경 → (2) `.env.prod` 갱신 → (3) 앱 재시작 |
+| `NAVER_CLIENT_SECRET` | Naver 콘솔에서 재발급 시 | Naver 콘솔에서 재발급 → `.env.prod` 갱신 → 앱 재시작 |
+| `COUPANG_TRACKING_ID` | 일반적으로 영구 | 변경 거의 없음 |
+
+회전 후 **이전 컨테이너 로그에 비번이 남아있지 않은지** 확인 (`docker compose logs app | grep -i password`).
+
+### 9-5. 외부 저장소 통합 hook (미도입 — 운영 단계 진입 시)
+
+현재는 환경변수 + `.env.prod` 파일로 충분하지만, 운영 규모 커지면 외부 저장소 도입 옵션:
+
+**AWS Secrets Manager** (EC2/ECS 운영 시 자연 fit):
+- Spring Boot 4 기본 지원: `spring.config.import=optional:aws-secretsmanager:coastcalculator/prod`
+- 의존성: `org.springframework.cloud:spring-cloud-aws-starter-secrets-manager`
+- EC2 IAM Role에 `secretsmanager:GetSecretValue` 권한 부여 → 환경변수 없이 코드에서 자동 주입
+- 비용: 시크릿당 $0.40/월 + 호출당 $0.05/만건 (사실상 무시)
+
+**HashiCorp Vault** (셀프 호스팅):
+- 의존성: `org.springframework.cloud:spring-cloud-starter-vault-config`
+- `spring.config.import=optional:vault://...`
+- 운영 복잡도 ↑ (Vault 서버 자체 관리)
+
+**SOPS / git-crypt** (시크릿 파일 암호화 후 git에 저장):
+- `.env.prod.enc`를 커밋, 복호화 키만 별도 관리
+- CI/CD에서 복호화 후 컨테이너에 주입
+
+→ 도입 시점은 **운영 인스턴스 수 ≥ 2** 또는 **시크릿 종류 ≥ 10개** 즈음 검토. 현재는 의도적으로 단순 유지.
+
+---
+
+## 10. 다음 단계 (Stage B 진입 시 추가 작업)
 
 - **도메인 + Route53**: 도메인 구매 → A record로 EC2 IP 가리키기
 - **HTTPS**: Caddy 또는 Nginx + Let's Encrypt 자동 발급
-- **T1-1 Flyway**: 스키마 마이그레이션 도구 도입
-- **T1-3 비번 정책 / brute force 방어**
-- **T1-6 통합 테스트 3종** (배포 안전망)
+- **T1-1 Flyway**: 스키마 마이그레이션 도구 도입 (✅ 완료)
+- **T1-3 비번 정책 / brute force 방어** (✅ 완료)
+- **T1-6 통합 테스트 3종** (배포 안전망) (✅ 완료)
 - **이미지 S3 이전** (현재 로컬 디스크 → EC2 사라지면 같이 사라짐)
+- **T1-4 외부 저장소** (AWS SM 또는 Vault) — § 9-5 참조
 
 → Stage B 진입 조건: 친구 베타 1주 운영 → 사용자 피드백으로 진행 결정.

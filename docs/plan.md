@@ -29,6 +29,7 @@
 | T2-11 | N+1 점검 후속 — two-step 쿼리(ID Page → IN 절 + EntityGraph) + findMine 강제 초기화 제거 (76 테스트) | ✅ |
 | T3-18.2 | 카테고리 alias/synonym — `category_aliases` + Flyway V3 + 매칭 단계 정규화 + admin UI (95 테스트) | ✅ |
 | T2-8 | 비동기/스케줄러 Naver refetch — viewByCategory 블로킹 제거 + @Async 트리거 + @Scheduled 1h (107 테스트) | ✅ |
+| T1-4 | 시크릿 외부화 정책 강화 — 운영 프로파일 + ProductionSecretsValidator + 운영 가이드 (119 테스트) | ✅ |
 | **다음** | **(보류) T2-13 Actuator + 모니터링 — 배포 직전 일괄 처리** | ⏸ |
 
 ---
@@ -340,6 +341,64 @@ EC2 비공개 베타용 준비 단계. 실제 EC2 배포는 보류 (사용자가
 
 ---
 
+# T1-4: 시크릿 외부화 정책 강화 — 완료 (2026-05-25)
+
+`improvements.md` T1-4 해결 (옵션 A — 환경변수 정책 강화 + 운영 가이드. AWS SM/Vault 실제 통합은 의도적 보류).
+
+## 정책 결정
+사용자가 옵션 A 선택 (2026-05-25):
+- 코드 변경 최소, 즉시 적용 가능
+- 부팅 시 필수 시크릿 검증으로 안전망
+- 외부 저장소 통합은 운영 인스턴스 수 ≥ 2 또는 시크릿 종류 ≥ 10 즈음 재검토
+- AWS SM 통합 hook은 deployment.md에 문서화만 (실 도입 X)
+
+## 변경
+
+### 운영 프로파일
+- **`application-prod.yaml`** 신규 — `SPRING_PROFILES_ACTIVE=prod`로 활성:
+  - `spring.jpa.show-sql: false`, `format_sql: false` (운영 SQL 노출 최소화)
+  - `spring.thymeleaf.cache: true` (운영 템플릿 캐시)
+  - `naver.api.mock-enabled: ${NAVER_MOCK_ENABLED:false}` (운영 기본 실 API)
+- **`docker-compose.prod.yml`** 갱신 — `SPRING_PROFILES_ACTIVE: prod` 자동 주입
+
+### 검증기
+- **`ProductionSecretsValidator`** (`@Profile("prod")` + `@PostConstruct`):
+  - DB 자격증명이 디폴트(`coast`/`coastpass`) 그대로 → 거부
+  - `INITIAL_ADMIN_PASSWORD` 비어있음 → 거부 (운영에서 랜덤 비번 로그 노출은 회전 어려움 + 로그 유출 시 즉시 침해)
+  - `naver.api.mock-enabled=false`인데 `NAVER_CLIENT_ID`/`SECRET` 비어있음 → 거부
+  - 위반 1개 이상 시 모두 모아 `IllegalStateException` (사용자가 환경변수 몇 개 빠졌는지 한 번에 파악)
+  - 통과 시 INFO 로그 한 줄
+
+### 시크릿 템플릿
+- **`.env.prod.example`** 갱신:
+  - `[REQUIRED]` 마커 명확화
+  - `__REPLACE_WITH_OPENSSL_RAND_24__` placeholder (디폴트 그대로 두면 부팅 거부)
+  - `NAVER_MOCK_ENABLED=false` 기본
+  - 안내 보강: `openssl rand -base64 24` 사용법
+
+### 운영 가이드 (`deployment.md` § 9)
+- § 9-1 `.env.prod` 파일 권한 (chmod 600, ownership 명시)
+- § 9-2 systemd `EnvironmentFile` 패턴 (Docker 미사용 시)
+- § 9-3 GitHub Actions Secrets 관리 (운영 시크릿은 CI에 노출 X)
+- § 9-4 시크릿 회전 절차 표 (admin/DB/Naver/Coupang 주기 + 절차)
+- § 9-5 외부 저장소 통합 hook 문서화 — AWS SM/Vault/SOPS 옵션 + 도입 트리거 ("인스턴스 ≥ 2 또는 시크릿 ≥ 10")
+
+## 의도적 비포함 → 후속
+- **AWS Secrets Manager 실제 의존성 추가**: 실 AWS 계정 + IAM Role 필요. 현 단계 과대투자라 문서화만.
+- **HashiCorp Vault 셀프 호스팅**: 운영 복잡도 ↑ — Vault 서버 자체 관리 부담.
+- **SOPS/git-crypt 암호화된 시크릿 파일**: `.env.prod`는 EC2 위에서만 다루는 정책이라 git에 암호화 저장 불필요.
+- **시크릿 회전 자동화**: 현재 수동 절차. 분기 1회 정도 빈도라 자동화 ROI 낮음.
+
+## 테스트 (총 119, 이전 T2-8 107 → +12)
+- `ProductionSecretsValidatorTest` 신규 12:
+  - HappyPath 2 (mock=true/false 둘 다 통과)
+  - DbCredentials 2 (디폴트 그대로 거부 / username만 디폴트는 통과)
+  - AdminPassword 3 (빈 문자열/공백만/null)
+  - NaverCredentials 4 (mock=true ignore / client-id만 빈 / secret만 빈 / 둘 다 빈 → 두 위반 동시 보고)
+  - `validate()` 통합 1 — 세 항목 모두 위반 시 모두 모아 IllegalStateException
+
+---
+
 # T2-8: 비동기/스케줄러 기반 Naver refetch — 완료 (2026-05-25)
 
 `improvements.md` T2-8 해결. T2-9 (외부 호출 안정성)와 짝.
@@ -611,11 +670,12 @@ EC2 비공개 베타용 준비 단계. 실제 EC2 배포는 보류 (사용자가
 
 ## 이후 후보 (improvements.md 참조)
 
-- T1-4 시크릿 외부 저장소 (현재 `application-local.yaml` 분리만 — 운영급 Vault/AWS Secrets 미적용, 배포 readiness Tier 1)
 - T3-19 가격 이력 — Freemium / 데이터 API 수익화의 공통 선행 (아래 "수익화 계획" 참조)
 - T2-10 캐싱 레이어 (Caffeine → Redis)
 - T2-12 Optimistic locking (`@Version`)
+- T3-15 후속 — 즐겨찾기 / 팔로우 / 작성자 프로필
 - (보류) EC2 실제 배포 + 배포 직전 T2-13 Actuator
+- (보류) T1-4 외부 저장소 실제 통합 — AWS SM / Vault (인스턴스 ≥ 2 또는 시크릿 ≥ 10 시점)
 
 ---
 

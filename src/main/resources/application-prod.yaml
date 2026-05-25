@@ -1,0 +1,30 @@
+# =========================================================
+# 운영 프로파일 (T1-4)
+# 사용: SPRING_PROFILES_ACTIVE=prod (docker-compose.prod.yml에서 자동 주입)
+#
+# 정책:
+#  - 모든 시크릿은 환경변수 필수 — default placeholder 그대로 부팅 시
+#    ProductionSecretsValidator가 부팅 거부
+#  - 로그/SQL 노출 최소화 — show-sql/format_sql=false
+#  - mock-enabled=false 기본 (운영은 실 Naver 호출)
+#  - server.error.include-* 는 base yaml의 never 정책 그대로 유지
+# =========================================================
+
+spring:
+  jpa:
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: false
+  thymeleaf:
+    cache: true                       # 운영은 템플릿 캐시 ON
+
+logging:
+  level:
+    org.hibernate.SQL: warn
+    org.hibernate.orm.jdbc.bind: warn
+
+naver:
+  api:
+    mock-enabled: ${NAVER_MOCK_ENABLED:false}   # 운영 기본 false. 키가 없으면 ProductionSecretsValidator가 부팅 거부
+    scheduled-refresh-enabled: true

@@ -43,6 +43,9 @@ services:
       mysql:
         condition: service_healthy
     environment:
+      # T1-4: 운영 프로파일 활성 — ProductionSecretsValidator가 부팅 시 시크릿 검증
+      SPRING_PROFILES_ACTIVE: prod
+
       # DB 연결 — 같은 docker network의 mysql 서비스명으로 접근
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/coast_calculator?serverTimezone=Asia/Seoul&characterEncoding=UTF-8
       DB_USERNAME: ${DB_USERNAME}
