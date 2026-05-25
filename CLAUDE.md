@@ -58,7 +58,8 @@ config/           SecurityConfig, NaverApiProperties, AffiliateProperties, Retry
 domain/user/      User, Role, UserRepository, UserService, CustomUserDetailsService, DataInitializer,
                   auth/(LoginAttemptService, AuthenticationEventListener)
 domain/ingredient/ Ingredient, Unit, IngredientRepository, IngredientService,
-                  IngredientRefetchService (T2-8 @Async/@Scheduled)
+                  IngredientRefetchService (T2-8 @Async/@Scheduled),
+                  IngredientPriceHistory, IngredientPriceHistoryRepository (T3-19)
 domain/category/  Category, CategoryRepository, CategoryService (T3-18),
                   CategoryAlias, CategoryAliasRepository, CategoryAliasService (T3-18.2)
 domain/recipe/    Recipe, RecipeIngredient, RecipeRepository, RecipeService,
@@ -81,6 +82,7 @@ web/error/        GlobalExceptionHandler
 ## Naver fetch upsert (`IngredientService.fetchAndUpsert`)
 - `naverProductId` 존재 시 → `title/price/totalAmount/pricePerGram/image/mallName/link/fetchedAt` 업데이트. **`category`는 절대 안 건드림**.
 - 신규 시 → `category=null` insert. **`category=null` 행은 사용자에게 노출 X** (관리자만).
+- **T3-19 가격 이력 적재**: 기존 갱신 시 `pricePerGram` 변동(BigDecimal.compareTo != 0)이면 `IngredientPriceHistory` row 추가. 신규는 시작 시점 무조건 적재. 동일 단가 fetch는 적재 X (옵션 B — 데이터 효율 + "이 시점에 변동" 의미 명확).
 
 ## 관리자
 - `DataInitializer`가 부팅 시 `admin` 멱등 생성. 비밀번호: env `INITIAL_ADMIN_PASSWORD` 우선 → 미설정 시 `SecureRandom` 16자 + WARN 로그 1회. 로컬 개발은 `application-local.yaml`에 `app.admin.initial-password`로 고정.

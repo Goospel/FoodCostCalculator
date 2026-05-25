@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head>
+    <meta charset="UTF-8">
+    <title>가격 이력 — 관리자</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 1000px; margin: 24px auto; padding: 0 16px; }
+        nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+        h1 { font-size: 1.5rem; }
+        h2 { font-size: 1.05rem; margin-top: 24px; }
+        .btn { padding: 8px 14px; background: #2563eb; color: white; border: none; border-radius: 6px; text-decoration: none; cursor: pointer; }
+        .btn-secondary { background: #6b7280; }
+        .meta { background: #f9fafb; padding: 12px; border-radius: 6px; font-size: 0.9rem; }
+        .meta dt { font-weight: 600; color: #374151; margin-top: 6px; }
+        .meta dd { margin: 2px 0 0 0; }
+        table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+        th, td { border-bottom: 1px solid #e5e7eb; padding: 10px 8px; text-align: left; font-size: 0.92rem; }
+        th { background: #f9fafb; }
+        td.numeric { text-align: right; font-variant-numeric: tabular-nums; }
+        .diff-up { color: #b91c1c; font-weight: 600; }
+        .diff-down { color: #166534; font-weight: 600; }
+        .diff-zero { color: #9ca3af; }
+        .empty { text-align: center; padding: 20px; color: #6b7280; }
+        a { color: #2563eb; }
+        .help { color: #6b7280; font-size: 0.85rem; margin-top: 8px; }
+    </style>
+</head>
+<body>
+<nav>
+    <h1>가격 이력</h1>
+    <div>
+        <a th:href="@{/admin/ingredients}">← 재료 목록</a> |
+        <span sec:authentication="name"></span>
+        <form th:action="@{/logout}" method="post" style="display:inline">
+            <button type="submit" class="btn btn-secondary">로그아웃</button>
+        </form>
+    </div>
+</nav>
+
+<dl class="meta">
+    <dt>제품명</dt>
+    <dd th:text="${ingredient.title}"></dd>
+    <dt>카테고리</dt>
+    <dd>
+        <span th:if="${ingredient.category != null}" th:text="${ingredient.category}"></span>
+        <span th:if="${ingredient.category == null}" style="color:#9ca3af">미지정</span>
+    </dd>
+    <dt>몰</dt>
+    <dd th:text="${ingredient.mallName}"></dd>
+    <dt>현재 가격</dt>
+    <dd>
+        <span th:text="${#numbers.formatInteger(ingredient.price, 3, 'COMMA')} + ' 원 / ' + ${ingredient.totalAmount} + ' ' + ${ingredient.unit}"></span>
+        — <strong th:text="${ingredient.pricePerGram} + ' 원/' + (${ingredient.unit.name()} == 'G' ? 'g' : 'ml')"></strong>
+    </dd>
+</dl>
+
+<h2>가격 변동 이력 (최신순)</h2>
+<p class="help">
+    정책 (T3-19): 가격(<code>pricePerGram</code>) 변동 시에만 기록. 동일 가격 fetch는 적재되지 않습니다.
+    신규 ingredient는 첫 fetch가 시작 시점으로 기록됩니다.
+</p>
+
+<table>
+    <thead>
+    <tr>
+        <th>기록 시각</th>
+        <th class="numeric">가격(원)</th>
+        <th class="numeric">용량</th>
+        <th>단위</th>
+        <th class="numeric">단위당 가격</th>
+        <th class="numeric">이전 대비</th>
+    </tr>
+    </thead>
+    <tbody>
+    <tr th:if="${#lists.isEmpty(history)}">
+        <td colspan="6" class="empty">아직 이력이 없습니다.</td>
+    </tr>
+    <tr th:each="h, st : ${history}">
+        <td th:text="${#temporals.format(h.recordedAt, 'yyyy-MM-dd HH:mm:ss')}"></td>
+        <td class="numeric" th:text="${#numbers.formatInteger(h.price, 3, 'COMMA')}"></td>
+        <td class="numeric" th:text="${h.totalAmount}"></td>
+        <td th:text="${h.unit}"></td>
+        <td class="numeric" th:text="${h.pricePerGram}"></td>
+        <!--/* 이전 row와 비교 — 최신순 정렬이라 다음 인덱스(st.index+1)가 더 옛날 기록 */-->
+        <td class="numeric" th:with="next=${st.last ? null : history[st.index + 1]}">
+            <span th:if="${next == null}" class="diff-zero">— (최초)</span>
+            <span th:if="${next != null and h.pricePerGram.compareTo(next.pricePerGram) &gt; 0}" class="diff-up"
+                  th:text="'+' + ${h.pricePerGram.subtract(next.pricePerGram)}"></span>
+            <span th:if="${next != null and h.pricePerGram.compareTo(next.pricePerGram) &lt; 0}" class="diff-down"
+                  th:text="${h.pricePerGram.subtract(next.pricePerGram)}"></span>
+        </td>
+    </tr>
+    </tbody>
+</table>
+</body>
+</html>

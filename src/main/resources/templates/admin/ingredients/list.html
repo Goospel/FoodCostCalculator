@@ -75,6 +75,7 @@
         <td th:text="${#temporals.format(i.fetchedAt, 'MM-dd HH:mm')}"></td>
         <td class="actions">
             <a th:href="@{/admin/ingredients/{id}/edit(id=${i.id})}">카테고리 수정</a>
+            <a th:href="@{/admin/ingredients/{id}/history(id=${i.id})}">이력</a>
             <form th:action="@{/admin/ingredients/{id}/delete(id=${i.id})}" method="post" style="display:inline"
                   onsubmit="return confirm('정말 삭제하시겠습니까?')">
                 <button type="submit" class="btn btn-danger">삭제</button>

@@ -28,18 +28,22 @@ public class IngredientService {
      * 양방향 의존(refetch가 다시 fetchAndUpsert 호출)의 부팅 초기화 순서 보호.
      */
     private final IngredientRefetchService refetchService;
+    /** T3-19: 가격 이력 적재 — fetchAndUpsert에서 변동 감지 시. */
+    private final IngredientPriceHistoryRepository priceHistoryRepository;
 
     @Autowired
     public IngredientService(IngredientRepository ingredientRepository,
                              NaverShoppingClient naverClient,
                              NaverApiProperties properties,
                              CategoryService categoryService,
-                             @Lazy IngredientRefetchService refetchService) {
+                             @Lazy IngredientRefetchService refetchService,
+                             IngredientPriceHistoryRepository priceHistoryRepository) {
         this.ingredientRepository = ingredientRepository;
         this.naverClient = naverClient;
         this.properties = properties;
         this.categoryService = categoryService;
         this.refetchService = refetchService;
+        this.priceHistoryRepository = priceHistoryRepository;
     }
 
     @Transactional
@@ -60,8 +64,11 @@ public class IngredientService {
 
             Optional<Ingredient> existing = ingredientRepository.findByNaverProductId(product.naverProductId());
             if (existing.isPresent()) {
+                Ingredient ing = existing.get();
+                // T3-19: 가격 변동 감지를 위해 갱신 직전 pricePerGram 백업
+                java.math.BigDecimal previousPpg = ing.getPricePerGram();
                 // 카테고리는 절대 건드리지 않음
-                existing.get().refreshFromNaver(
+                ing.refreshFromNaver(
                         product.title(),
                         product.price(),
                         amount.amount(),
@@ -71,6 +78,10 @@ public class IngredientService {
                         product.link(),
                         now
                 );
+                // T3-19: pricePerGram 변동 시만 history 적재 (BigDecimal.compareTo로 scale 무시 비교)
+                if (previousPpg == null || previousPpg.compareTo(ing.getPricePerGram()) != 0) {
+                    priceHistoryRepository.save(IngredientPriceHistory.snapshotOf(ing, now));
+                }
             } else {
                 Ingredient ingredient = Ingredient.builder()
                         .naverProductId(product.naverProductId())
@@ -85,6 +96,9 @@ public class IngredientService {
                         .fetchedAt(now)
                         .build();
                 ingredientRepository.save(ingredient);
+                // T3-19: 신규 ingredient는 첫 history row (시작 시점) 적재.
+                // save 반환값 대신 같은 영속 인스턴스 사용 — JPA 동일 트랜잭션 내라 안전.
+                priceHistoryRepository.save(IngredientPriceHistory.snapshotOf(ingredient, now));
             }
             processed++;
         }
