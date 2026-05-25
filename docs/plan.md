@@ -27,6 +27,7 @@
 | T2-7 | 페이지네이션 — 홈/검색/내 레시피, 페이지 크기 12, prev/next + ±2 페이지 번호 (65 테스트) | ✅ |
 | T3-18 | 카테고리 마스터 — `categories` 테이블 + Flyway V2 + datalist 자동완성 (73 테스트) | ✅ |
 | T2-11 | N+1 점검 후속 — two-step 쿼리(ID Page → IN 절 + EntityGraph) + findMine 강제 초기화 제거 (76 테스트) | ✅ |
+| T3-18.2 | 카테고리 alias/synonym — `category_aliases` + Flyway V3 + 매칭 단계 정규화 + admin UI (95 테스트) | ✅ |
 | **다음** | **(보류) T2-13 Actuator + 모니터링 — 배포 직전 일괄 처리** | ⏸ |
 
 ---
@@ -338,6 +339,51 @@ EC2 비공개 베타용 준비 단계. 실제 EC2 배포는 보류 (사용자가
 
 ---
 
+# T3-18.2: 카테고리 alias/synonym — 완료 (2026-05-25)
+
+`improvements.md` T3-18 비고 — alias 부분도 해결.
+
+## 정책 결정 (옵션 A — 매칭 단계만 정규화)
+
+사용자 입력은 그대로 저장(예: `RecipeIngredient.categoryName = "박력분"`), ingredient 매칭/검증 단계에서만 alias를 풀어 canonical("밀가루")로 검색. **T3-17의 "사용자 의도 보존, 자동 덮어쓰기 X" 정책과 일관**. 반대 옵션 B(저장 시 정규화)는 사용자 의도 손실 우려로 거부.
+
+## 변경
+
+### 데이터 모델
+- **`V3__category_aliases.sql`**: `category_aliases(id, alias unique, canonical_category_id FK→categories ON DELETE CASCADE, created_at)`. 표준 SQL (MySQL/H2 호환).
+- **`CategoryAlias`** 엔티티: `alias` unique + `canonical` ManyToOne LAZY + `created_at` CreationTimestamp.
+- **`CategoryAliasRepository`**: `findByAlias`, `existsByAlias`, `findAllByOrderByAliasAsc` (`@EntityGraph(canonical)` — admin 리스트 LazyInit 방지).
+
+### 핵심 서비스
+- **`CategoryAliasService`**:
+  - `resolve(input)` — 우선순위: (1) categories.name에 있으면 input 그대로(canonical 우선), (2) aliases에 있으면 canonical.name 반환, (3) 둘 다 없으면 input 그대로(자유 입력 보존). null/blank 그대로.
+  - `add(alias, canonical)` — 5가지 검증: blank 거부 / 자기 자신 거부 / alias가 이미 canonical 이름이면 거부 / alias 중복 거부 / canonical 미존재 거부.
+  - `delete(id)` — 미존재 거부.
+
+### 통합 지점
+- **`RecipeCostCalculator.calculate`**: `findByCategoryAndUnit` 직전에 `aliasService.resolve(ri.getCategoryName())` 적용. selectedIngredient 분기는 그대로(alias 풀이 미적용 — 명시 선택의 우선순위 유지).
+- **`RecipeService.resolveSelectedIngredient`** (T3-17 검증): row category와 selected.category 양쪽 resolve 후 `equalsIgnoreCase` 비교. 한 쪽이 alias여도 풀어서 같으면 통과.
+
+### Admin UI
+- **`/admin/category-aliases`**: 목록 + 추가 폼(한 페이지). canonical 선택은 HTML5 `<datalist>` 자동완성 — **JS 없음 정책 유지**. 추가/삭제는 폼 POST + redirect. `admin/ingredients/list.html`에 진입 버튼 추가.
+- 보안: `/admin/**` ROLE_ADMIN 룰로 자동 보호 (SecurityConfig 변경 X).
+
+## 의도적 비포함 → 후속
+- **저장 시 정규화**: 옵션 B 자체를 거부 (사용자 의도 보존 정책).
+- **alias의 alias (체인)**: 의도적으로 X. canonical은 alias 될 수 없음(검증 #3) + alias의 canonical FK는 Category만 가리킴 → 체인 자체가 만들어질 수 없는 구조.
+- **bulk import**: alias 다수 등록 시 폼으로만 가능. CSV/API는 후속.
+- **alias 검색 노출**: 사용자 폼 datalist에는 canonical만 노출. alias는 사용자가 직접 입력하면 풀려서 매칭됨.
+
+## 테스트 (총 95, 이전 T2-11 76 → +19)
+- `CategoryAliasServiceTest` 신규 14:
+  - resolve 6 (canonical 우선 / alias 풀이 / unknown 그대로 / trim / null / blank)
+  - add 7 (정상 / blank alias / blank canonical / 자기자신 / canonical 중복 / alias 중복 / canonical 미존재)
+  - delete 1 (미존재 ID)
+- `RecipeCostCalculatorTest` 신규 3: alias 풀이 매칭 OK / 풀이 후에도 미매칭 / selectedIngredient는 alias 경로 우회
+- `RecipeServiceTest` +2: alias 풀이로 카테고리 일치 인정 / 풀이 후에도 다른 canonical은 거부 (총 11→13)
+
+---
+
 # T3-18: 카테고리 마스터 — 완료 (2026-05-25)
 
 `improvements.md` T3-18 부분 해결 (마스터 + 자동완성). alias/synonym은 별도 후속(T3-18.2 또는 새 항목).
@@ -511,6 +557,6 @@ EC2 비공개 베타용 준비 단계. 실제 EC2 배포는 보류 (사용자가
 ## 이후 후보 (improvements.md 참조)
 
 - T2-8 비동기 / 스케줄러 기반 Naver refetch (T2-9와 짝)
-- T3-18.2 카테고리 alias/synonym 매핑 (박력분 → 밀가루) — T3-18 후속
+- T1-4 시크릿 외부 저장소 (배포 readiness Tier 1)
 - T1-4 시크릿 외부 저장소 (현재 application-local.yaml 분리만 — 운영급 Vault/AWS Secrets 미적용)
 - (보류) EC2 실제 배포 + 배포 직전 T2-13 Actuator

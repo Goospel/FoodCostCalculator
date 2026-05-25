@@ -1,5 +1,6 @@
 package com.goosepl.coastCalculator.domain.recipe.cost;
 
+import com.goosepl.coastCalculator.domain.category.CategoryAliasService;
 import com.goosepl.coastCalculator.domain.ingredient.Ingredient;
 import com.goosepl.coastCalculator.domain.ingredient.IngredientRepository;
 import com.goosepl.coastCalculator.domain.recipe.Recipe;
@@ -21,6 +22,7 @@ public class RecipeCostCalculator {
     private static final int PRICE_PER_UNIT_SCALE = 4;
 
     private final IngredientRepository ingredientRepository;
+    private final CategoryAliasService categoryAliasService;
 
     @Transactional(readOnly = true)
     public RecipeCostResult calculate(Recipe recipe, PricingPolicy policy) {
@@ -42,9 +44,11 @@ public class RecipeCostCalculator {
                 continue;
             }
 
-            // 2) 카테고리 + 단위로 후보 검색
+            // 2) T3-18.2: alias 풀이 후 카테고리 + 단위로 후보 검색
+            //    저장은 사용자 의도(ri.categoryName) 그대로, 매칭은 canonical로
+            String resolvedCategory = categoryAliasService.resolve(ri.getCategoryName());
             List<Ingredient> candidates = ingredientRepository.findByCategoryAndUnit(
-                    ri.getCategoryName(), ri.getUnit());
+                    resolvedCategory, ri.getUnit());
 
             if (candidates.isEmpty()) {
                 lines.add(new RecipeCostResult.IngredientCostLine(
