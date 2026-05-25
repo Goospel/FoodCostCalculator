@@ -550,4 +550,57 @@ git push --force-with-lease origin feat/your-branch
 - **진행 추적 문서는 동시 PR의 천적**. 코드는 모듈별로 분리되지만 문서는 한 곳에 누적되니까
 - `improvements.md` 같이 한 줄짜리 항목 체크박스는 비교적 안전, `plan.md`의 마크다운 표/섹션은 충돌 자석
 - `--force-with-lease`는 `--force`보다 안전 — 다른 사람이 푸시한 게 있으면 거절. 혼자 작업하는 PR에서도 디폴트로 쓸 것
+
+---
+
+## TS-13. **머지된 PR의 브랜치에 추가 푸시 사고** — main에 안 들어가는 좀비 커밋
+
+**날짜**: 2026-05-25 / 관련 작업: PR #7 머지 직후 `feat/n-plus-one-fix`에 추가 커밋 → PR #8로 수습
+
+### 증상
+- PR #7 (T2-11) 머지 직후, 같은 브랜치 `feat/n-plus-one-fix`에 후속 문서 커밋(`cf50a05`: CLAUDE.md 규칙 #4 + TS-12) 추가 푸시
+- 머지된 PR은 재오픈되지 않음 → 푸시된 커밋은 **origin/feat/n-plus-one-fix에만 존재**, main에는 영원히 안 들어감
+- 사용자가 "PR#7은 이미 머지했는데 거기다가 추가로 내용을 push하면 어떡하냐"로 발견할 때까지 인지 못 함
+- `git status`는 "up to date with origin/feat/n-plus-one-fix"로 정상 보고 → 좀비 상태가 시각적으로 드러나지 않음
+
+### 진단
+- 머지된 PR은 GitHub에서 **CLOSED + MERGED** 상태로 잠김. 같은 브랜치에 추가 푸시해도 PR이 자동 reopen되지 않음
+- 같은 브랜치명을 계속 쓰면 머지 후/전 구분이 안 됨 — 작업 흐름상 머지 직후 곧바로 다음 작업을 시작하면 "같은 브랜치 = 진행 중"이라는 무의식적 가정에 빠지기 쉬움
+- 워크플로우 규칙 #1 (`gh pr list`로 상태 확인)을 **PR 생성 전에만** 적용하고 **push 전에는** 적용 안 한 게 근본 원인
+
+### 해결
+**좀비 커밋을 새 PR로 분리하기**:
+```bash
+# 1) main 최신화
+git checkout main
+git pull origin main
+
+# 2) 새 브랜치 분기
+git checkout -b docs/<topic>
+
+# 3) 좀비 커밋만 cherry-pick (충돌 0인 게 정상 — 같은 main 위에 올라가는 거라)
+git cherry-pick <sha>
+
+# 4) 푸시 + 새 PR
+git push -u origin docs/<topic>
+# PR 본문은 UTF-8 임시 파일 + --body-file (TS-11)
+gh pr create --base main --head docs/<topic> --title "..." --body-file .pr-body-N.tmp.md
+
+# 5) 좀비 브랜치 삭제 (로컬 + 원격)
+git branch -D feat/<old-branch>
+git push origin --delete feat/<old-branch>
+```
+
+### 예방
+- **`git push` 전 체크리스트** (특히 머지 직후 같은 브랜치에 작업 이어갈 때):
+  1. `gh pr list --state all --limit 5` 로 현재 브랜치의 PR 상태 확인
+  2. 해당 PR이 `MERGED`면 **그 브랜치는 이미 죽은 브랜치** — 새 작업은 `git checkout main && git pull && git checkout -b <new-branch>` 부터
+  3. `git branch --show-current`로 어디서 작업 중인지 항상 확인
+- **브랜치 이름 관성 금지**: "PR 머지됐는데 후속 한 줄 더 추가하자"는 욕구가 들 때, 자동으로 새 브랜치 만들기
+- CLAUDE.md "PR 만들기 전" 규칙은 사실상 **"브랜치에 커밋 만들기 전"** 으로 적용해야 안전
+
+### 교훈
+- **머지된 브랜치는 좀비**. `git status`가 "정상"이라고 거짓말함 — 원격에는 있지만 main 흐름과 분리된 사이드 브랜치일 뿐
+- 자동화 도구가 머지 상태를 항상 인지하지는 못함. 푸시 직전에도 `gh pr view <N> --json state` 같은 적극적 검증 필요
+- 사고 자체는 cherry-pick 한 번이면 수습 가능. 문제는 **사용자가 발견하기 전까지 main에 누락된 채로 시간이 흐른다**는 것 — 자동화는 빠른 만큼 빠르게 틀린다
 - `mergeStateStatus: UNSTABLE` 자체는 머지 차단 아님 — CI 진행 중일 때 잠시 나오는 상태. `mergeable: MERGEABLE`이면 안전
