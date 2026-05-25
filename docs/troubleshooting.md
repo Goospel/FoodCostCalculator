@@ -427,11 +427,11 @@ foreach ($p in 8181, 8160, 9000, 9090) {
 
 ---
 
-## TS-11. PowerShell에서 native exe(`gh`)에 multi-line body string 전달 시 인자가 쪼개짐
+## TS-11. PowerShell에서 native exe(`gh`)에 multi-line body string 전달 — 인자 쪼개짐 + **인코딩 모지바케**
 
-**날짜**: 2026-05-23 / 관련 작업: PR 본문 자동 작성
+**날짜**: 2026-05-23 / 관련 작업: PR 본문 자동 작성. 2026-05-23 보강: stdin도 결국 인코딩 함정 있음.
 
-### 증상
+### 증상 A — 인자 쪼개짐
 - PowerShell에서 `gh pr create --body "..."` 실행 시 body 내 공백/괄호/한국어 토큰이 별도 인자로 쪼개짐:
   ```
   unknown arguments ["제품" "(선택) 추가..." "..." "..."]
@@ -439,27 +439,59 @@ foreach ($p in 8181, 8160, 9000, 9090) {
   ```
 - 큰따옴표로 감싸고 `@'...'@` here-string으로 만들었는데도 같은 에러
 
-### 원인
-PowerShell이 native executable에 인자를 전달할 때 quoting/escaping이 cmd.exe 시절 규칙과 충돌 — 특히 body에 백틱, 괄호, 콜론, 한국어 어절 경계가 섞이면 PowerShell parser가 인자 경계를 잘못 추론.
+### 증상 B — 인코딩 깨짐 (가장 헷갈리는 함정)
+- here-string + stdin (`$body | gh ... --body-file -`)으로 우회했더니 **명령은 통과하는데** GitHub PR 페이지 가서 보면 **한국어가 전부 `?`로 깨짐**:
+  ```
+  ?? PR ??: #4 (#1-3 ?? ?? ??, ?? ? PR ?? ...)
+  ```
+- 처음엔 GitHub UI 렌더링 문제로 의심하지만 — `gh pr view <N> --json body` 로 raw로 봐도 똑같이 `?`. 즉 GitHub에 저장된 본문 자체가 이미 깨진 상태로 들어감.
 
-### 해결 — stdin 사용 (`--body-file -`)
+### 원인
+**(A)** PowerShell이 native exe에 인자 전달 시 quoting/escaping이 cmd.exe 규칙과 충돌. 백틱·괄호·콜론·한국어 어절 경계가 섞이면 인자 경계를 잘못 추론.
+
+**(B)** PowerShell 5.1의 `$OutputEncoding` 기본값은 **ASCII**(Korean Windows에선 CP949처럼 동작). `$str | native.exe` pipe 시 stdin은 이 인코딩으로 변환됨 → UTF-8 외 문자는 `?`로 손실. `--body-file -` 도 결국 stdin이라 같은 문제.
+
+### 해결 — **임시 UTF-8 파일 + `--body-file <path>`**
+
+가장 확실한 방법:
 ```powershell
+# 1) Write 도구나 Set-Content -Encoding utf8 로 임시 파일 작성 (UTF-8)
 $body = @'
-multi-line content with
-괄호 (그리고) 콜론: 모두 안전
+**이번 PR 번호: #4**
+세 가지 정리 작업 — 한국어/괄호/이모지 🤖 다 안전
 '@
-$body | & "C:\Program Files\GitHub CLI\gh.exe" pr create `
+Set-Content -Path .pr-body.tmp.md -Value $body -Encoding utf8
+
+# 2) gh pr edit/create 에 --body-file <path> 로 파일 경로 전달
+& "C:\Program Files\GitHub CLI\gh.exe" pr create `
     --repo Owner/Repo `
     --title "title" `
-    --body-file -
+    --body-file .pr-body.tmp.md
+
+# 3) 끝나면 임시 파일 정리
+Remove-Item .pr-body.tmp.md
 ```
 
-`--body-file -` 는 stdin으로 body 읽음. PowerShell이 텍스트를 그대로 pipe로 흘려보내니 quoting 문제 자체가 없음.
+`gh`가 파일을 직접 UTF-8로 읽으니 PowerShell의 인코딩 변환을 거치지 않음 → 한국어 안전.
+
+### 차선책 — stdin 쓰려면 `$OutputEncoding` 강제
+
+stdin 방식을 꼭 써야 하면 호출 직전에:
+```powershell
+$OutputEncoding = [System.Text.UTF8Encoding]::new()
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
+$body | & gh pr create --body-file -
+```
+다만 세션 전역 영향이 있어 다른 스크립트와 충돌 가능 — **임시 파일 방식이 더 안전**.
+
+### 깨진 PR 복구
+이미 깨진 채로 올린 PR은 동일 방식(`--body-file <utf8-path>`)으로 `gh pr edit <N> --body-file ...` 하면 즉시 정상화.
 
 ### 추가 함정
-- `& "C:\Program Files\GitHub CLI\gh.exe" ...` 실행 시 **현재 작업 디렉토리가 git repo가 아니면** `could not determine the current branch` 에러. PowerShell 세션 cwd를 repo 안으로 옮기고 호출 (`Set-Location` 또는 `--repo` 인자 명시).
+- `& "C:\Program Files\GitHub CLI\gh.exe" ...` 실행 시 **cwd가 git repo가 아니면** `could not determine the current branch` 에러. `Set-Location` 또는 `--repo OWNER/REPO` 명시로 회피.
 
 ### 교훈
-- PowerShell + native exe + multi-line/특수문자 body = stdin이 정답
-- here-string `@'...'@`(literal) vs `@"..."@`(interpolated) 구분 — body에 `$`가 있으면 literal로
-- `gh` 명령은 가능한 한 `--repo OWNER/REPO`를 명시 — cwd 의존 에러 회피
+- PowerShell + native exe + multi-line/한국어 body = **임시 UTF-8 파일 + `--body-file <path>`** 가 정답
+- stdin pipe(`--body-file -`)는 인자 쪼개짐은 해결하지만 **인코딩 손실은 해결 못 함**
+- "명령이 성공"과 "결과물이 정상"은 다름 — 자동화 후 **반드시 `gh pr view`로 raw 본문 검증**
+- 한국어 외에도 emoji, em-dash, smart quote 등 non-ASCII 전부 영향. ASCII-only면 두 증상 다 잠복
