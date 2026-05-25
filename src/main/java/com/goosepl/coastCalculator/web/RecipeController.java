@@ -1,5 +1,6 @@
 package com.goosepl.coastCalculator.web;
 
+import com.goosepl.coastCalculator.domain.category.CategoryService;
 import com.goosepl.coastCalculator.domain.comment.CommentService;
 import com.goosepl.coastCalculator.domain.ingredient.Ingredient;
 import com.goosepl.coastCalculator.domain.ingredient.IngredientService;
@@ -46,6 +47,7 @@ public class RecipeController {
     private final RecipeLikeService recipeLikeService;
     private final CommentService commentService;
     private final IngredientService ingredientService;
+    private final CategoryService categoryService;
 
     @GetMapping
     public String list(@RequestParam(value = "page", defaultValue = "0") int page,
@@ -63,6 +65,7 @@ public class RecipeController {
             model.addAttribute("recipeForm", RecipeForm.emptyWithRows(FORM_ROWS));
         }
         model.addAttribute("ingredientGroups", loadIngredientGroups());
+        model.addAttribute("categoryNames", categoryService.findAllNames());
         model.addAttribute("mode", "new");
         return "recipes/form";
     }
@@ -121,6 +124,7 @@ public class RecipeController {
             model.addAttribute("recipeForm", RecipeForm.fromRecipe(recipe, FORM_ROWS));
         }
         model.addAttribute("ingredientGroups", loadIngredientGroups());
+        model.addAttribute("categoryNames", categoryService.findAllNames());
         model.addAttribute("mode", "edit");
         return "recipes/form";
     }

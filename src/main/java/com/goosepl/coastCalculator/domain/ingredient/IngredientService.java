@@ -1,6 +1,7 @@
 package com.goosepl.coastCalculator.domain.ingredient;
 
 import com.goosepl.coastCalculator.config.NaverApiProperties;
+import com.goosepl.coastCalculator.domain.category.CategoryService;
 import com.goosepl.coastCalculator.external.naver.NaverShoppingClient;
 import com.goosepl.coastCalculator.external.naver.dto.NaverProduct;
 import com.goosepl.coastCalculator.external.naver.parser.UnitParser;
@@ -21,6 +22,7 @@ public class IngredientService {
     private final IngredientRepository ingredientRepository;
     private final NaverShoppingClient naverClient;
     private final NaverApiProperties properties;
+    private final CategoryService categoryService;
 
     @Transactional
     public int fetchAndUpsert(String keyword) {
@@ -117,6 +119,10 @@ public class IngredientService {
                 .orElseThrow(() -> new IllegalArgumentException("재료를 찾을 수 없습니다: id=" + id));
         String normalized = (category == null || category.isBlank()) ? null : category.trim();
         ingredient.updateCategory(normalized);
+        // T3-18: admin이 새 카테고리를 부여하면 마스터에 멱등 등록 → datalist 자동완성에 노출
+        if (normalized != null) {
+            categoryService.ensureExists(normalized);
+        }
     }
 
     @Transactional

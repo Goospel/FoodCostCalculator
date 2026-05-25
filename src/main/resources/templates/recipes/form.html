@@ -71,6 +71,11 @@
     </div>
 
     <h3 style="margin-top:24px; font-size:1.1rem">재료 (빈 행은 무시됩니다)</h3>
+
+    <!--/* T3-18: 모든 재료 행이 공유하는 카테고리 자동완성 datalist (DOM 한 번만 정의) */-->
+    <datalist id="recipeCategoryOptions">
+        <option th:each="c : ${categoryNames}" th:value="${c}"></option>
+    </datalist>
     <p style="font-size:0.85rem; color:#6b7280; margin: 4px 0 8px;">
         "고정 제품"을 선택하면 단가 정책(LOWEST/AVERAGE/HIGHEST)을 무시하고 해당 제품의 단가만 사용합니다.
         선택한 제품의 카테고리/단위가 행의 입력과 다르면 저장이 거부됩니다.
@@ -89,7 +94,8 @@
         <tr th:each="ing, iter : *{ingredients}">
             <td th:text="${iter.index + 1}"></td>
             <td>
-                <input type="text" th:field="*{ingredients[__${iter.index}__].categoryName}" placeholder="예: 밀가루">
+                <!--/* T3-18: categoryNames datalist 자동완성으로 마스터 카테고리 노출. 새 카테고리도 자유 입력 가능 (저장 시 admin이 수정하면 마스터에 등록됨) */-->
+                <input type="text" th:field="*{ingredients[__${iter.index}__].categoryName}" placeholder="예: 밀가루" list="recipeCategoryOptions">
             </td>
             <td>
                 <input type="number" step="0.0001" min="0" th:field="*{ingredients[__${iter.index}__].amount}" placeholder="500">
