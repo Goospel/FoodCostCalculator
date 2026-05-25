@@ -1,5 +1,6 @@
 package com.goosepl.coastCalculator.web.admin;
 
+import com.goosepl.coastCalculator.domain.category.CategoryService;
 import com.goosepl.coastCalculator.domain.ingredient.Ingredient;
 import com.goosepl.coastCalculator.domain.ingredient.IngredientService;
 import com.goosepl.coastCalculator.domain.ingredient.dto.CategoryUpdateForm;
@@ -22,6 +23,7 @@ import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 public class AdminIngredientController {
 
     private final IngredientService ingredientService;
+    private final CategoryService categoryService;
 
     @GetMapping
     public String list(Model model) {
@@ -50,6 +52,8 @@ public class AdminIngredientController {
         if (!model.containsAttribute("categoryUpdateForm")) {
             model.addAttribute("categoryUpdateForm", new CategoryUpdateForm(ingredient.getCategory()));
         }
+        // T3-18: 카테고리 마스터를 datalist 자동완성으로 노출
+        model.addAttribute("categoryNames", categoryService.findAllNames());
         return "admin/ingredients/edit";
     }
 
@@ -60,6 +64,7 @@ public class AdminIngredientController {
                          Model model) {
         if (bindingResult.hasErrors()) {
             model.addAttribute("ingredient", ingredientService.findById(id));
+            model.addAttribute("categoryNames", categoryService.findAllNames());
             return "admin/ingredients/edit";
         }
         ingredientService.updateCategory(id, categoryUpdateForm.getCategory());

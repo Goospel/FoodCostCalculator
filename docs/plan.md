@@ -25,6 +25,7 @@
 | T3-22 후속 | GitHub Actions CI/CD (`.github/workflows/ci.yml`) — test + GHCR 이미지 푸시 | ✅ |
 | T3-17 | selectedIngredient UI — "이 제품으로 고정" 드롭다운 + 카테고리/단위 검증 (64 테스트) | ✅ |
 | T2-7 | 페이지네이션 — 홈/검색/내 레시피, 페이지 크기 12, prev/next + ±2 페이지 번호 (65 테스트) | ✅ |
+| T3-18 | 카테고리 마스터 — `categories` 테이블 + Flyway V2 + datalist 자동완성 (73 테스트) | ✅ |
 | **다음** | **(보류) T2-13 Actuator + 모니터링 — 배포 직전 일괄 처리** | ⏸ |
 
 ---
@@ -336,6 +337,37 @@ EC2 비공개 베타용 준비 단계. 실제 EC2 배포는 보류 (사용자가
 
 ---
 
+# T3-18: 카테고리 마스터 — 완료 (2026-05-25)
+
+`improvements.md` T3-18 부분 해결 (마스터 + 자동완성). alias/synonym은 별도 후속(T3-18.2 또는 새 항목).
+
+## 설계 결정
+- **점진적 안전 접근(옵션 A)**: `Ingredient.category`는 String 그대로 유지 (FK 전환 X). `Category` 마스터 테이블은 별도 — admin/사용자 폼의 `<datalist>` 자동완성 권장 목록 용도.
+- FK 전환을 안 한 이유:
+  - 마이그레이션 부담↓
+  - `RecipeIngredient.categoryName`이 자유 입력이라 일관성 문제 동일하게 남음 (그 측은 사용자 검색 키워드 의도)
+  - T3-17 검증 로직(`equalsIgnoreCase`)과 자연 결합
+- alias/synonym(박력분 → 밀가루) 매핑 미포함 — 별도 후속
+
+## 변경
+- **Flyway `V2__category_master.sql`**: `categories(id, name unique, created_at)` 테이블 생성 + 기존 `ingredients.category` distinct 값 INSERT (NOT IN 패턴, MySQL/H2 표준 SQL).
+- **`domain/category/`** 신규: `Category` 엔티티 / `CategoryRepository`(findByName, existsByName, findAllByOrderByNameAsc) / `CategoryService`(findAllNames, ensureExists 멱등).
+- **`IngredientService.updateCategory`**: 카테고리 저장 시 `categoryService.ensureExists(name)` 호출 → 마스터 자동 등록. null/blank는 skip.
+- **`AdminIngredientController.editForm` + `admin/ingredients/edit.html`**: categoryNames 모델 주입 + `<datalist id="categoryOptions">` 자동완성.
+- **`RecipeController` GET 폼 경로 4곳 + `recipes/form.html`**: categoryNames 모델 주입 + 모든 재료 행이 공유하는 `<datalist id="recipeCategoryOptions">` (DOM 한 번만 정의).
+- HTML5 `<datalist>`만 사용 — **JS 없음 정책 준수**. 입력 자유도 유지하면서 기존 카테고리 노출.
+
+## 의도적 비포함 → 후속 항목
+- **alias/synonym 매핑** (박력분 → 밀가루 같은 유의어): 별도 항목으로 plan에 추가.
+- **카테고리 삭제 UI**: Ingredient.category가 String이라 마스터 삭제해도 데이터 남아 사용자 혼란만 유발. 정리는 SQL 수동 또는 향후 admin 페이지.
+- **`Ingredient.category` FK 전환**: 위 이유로 안 함. 필요 시 별도 마이그레이션 PR.
+
+## 테스트 (총 73, 이전 65 → +8)
+- `CategoryServiceTest` 신규 6 — ensureExists(신규 insert/이미 존재 skip/trim/null no-op/blank no-op) + findAllNames 매핑
+- `IngredientServiceTest` +2 — updateCategory가 ensureExists를 호출(새 카테고리) / null이면 호출 X
+
+---
+
 # T2-7: 페이지네이션 — 완료 (2026-05-25)
 
 `improvements.md` T2-7 해결.
@@ -433,6 +465,6 @@ EC2 비공개 베타용 준비 단계. 실제 EC2 배포는 보류 (사용자가
 
 - T2-8 비동기 / 스케줄러 기반 Naver refetch (T2-9와 짝)
 - T2-11 N+1 점검 후속 — T2-7에서 발생 가능한 `ToMany + Pageable` in-memory paging 경고 정리 (two-step 쿼리 패턴)
-- T3-18 카테고리 정규화 (마스터 테이블 / synonym) — T3-17과 자연 연결
+- T3-18.2 카테고리 alias/synonym 매핑 (박력분 → 밀가루) — T3-18 후속
 - T1-4 시크릿 외부 저장소 (현재 application-local.yaml 분리만 — 운영급 Vault/AWS Secrets 미적용)
 - (보류) EC2 실제 배포 + 배포 직전 T2-13 Actuator

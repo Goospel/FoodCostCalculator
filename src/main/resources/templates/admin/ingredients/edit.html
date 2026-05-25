@@ -37,8 +37,15 @@
 <form th:action="@{/admin/ingredients/{id}(id=${ingredient.id})}" th:object="${categoryUpdateForm}" method="post">
     <label>
         카테고리 (비워두면 미지정)
-        <input type="text" th:field="*{category}" placeholder="예: 밀가루" autofocus>
+        <input type="text" th:field="*{category}" placeholder="예: 밀가루" list="categoryOptions" autofocus>
     </label>
+    <!--/* T3-18: HTML5 datalist 자동완성 — JS 없음 정책 OK. 기존 입력 가능, 마스터 목록에서 선택도 가능 */-->
+    <datalist id="categoryOptions">
+        <option th:each="c : ${categoryNames}" th:value="${c}"></option>
+    </datalist>
+    <small style="color:#6b7280; font-size:0.8rem">
+        기존 카테고리 자동완성됩니다. 새 이름 입력 시 마스터에 자동 등록됩니다.
+    </small>
     <div class="field-error" th:if="${#fields.hasErrors('category')}" th:errors="*{category}"></div>
     <button type="submit">저장</button>
 </form>

@@ -1,6 +1,7 @@
 package com.goosepl.coastCalculator.domain.ingredient;
 
 import com.goosepl.coastCalculator.config.NaverApiProperties;
+import com.goosepl.coastCalculator.domain.category.CategoryService;
 import com.goosepl.coastCalculator.external.naver.NaverShoppingClient;
 import com.goosepl.coastCalculator.external.naver.dto.NaverProduct;
 import org.junit.jupiter.api.DisplayName;
@@ -40,6 +41,9 @@ class IngredientServiceTest {
 
     @Mock
     private NaverApiProperties naverApiProperties;
+
+    @Mock
+    private CategoryService categoryService;
 
     @InjectMocks
     private IngredientService ingredientService;
@@ -161,5 +165,47 @@ class IngredientServiceTest {
         assertThat(existing.getCategory()).isEqualTo("밀가루");          // 보존
         assertThat(existing.getPrice()).isEqualTo(3500);                  // 갱신
         verify(ingredientRepository, times(1)).save(any(Ingredient.class)); // P-NEW만 insert
+    }
+
+    // ---- T3-18: updateCategory에서 카테고리 마스터 자동 등록 ----
+
+    @Test
+    @DisplayName("updateCategory: 새 카테고리 입력 시 categoryService.ensureExists 호출")
+    void updateCategoryEnsuresMaster() {
+        Ingredient ing = Ingredient.builder()
+                .naverProductId("P-1")
+                .title("제품")
+                .category(null)
+                .price(1000)
+                .totalAmount(new java.math.BigDecimal("100"))
+                .unit(Unit.G)
+                .fetchedAt(java.time.LocalDateTime.now())
+                .build();
+        given(ingredientRepository.findById(1L)).willReturn(Optional.of(ing));
+
+        ingredientService.updateCategory(1L, "박력분");
+
+        assertThat(ing.getCategory()).isEqualTo("박력분");
+        verify(categoryService, times(1)).ensureExists("박력분");
+    }
+
+    @Test
+    @DisplayName("updateCategory: null/blank 카테고리 → ensureExists 호출 X")
+    void updateCategoryWithNullSkipsMaster() {
+        Ingredient ing = Ingredient.builder()
+                .naverProductId("P-1")
+                .title("제품")
+                .category("기존")
+                .price(1000)
+                .totalAmount(new java.math.BigDecimal("100"))
+                .unit(Unit.G)
+                .fetchedAt(java.time.LocalDateTime.now())
+                .build();
+        given(ingredientRepository.findById(1L)).willReturn(Optional.of(ing));
+
+        ingredientService.updateCategory(1L, null);
+
+        assertThat(ing.getCategory()).isNull();
+        verify(categoryService, never()).ensureExists(any());
     }
 }
