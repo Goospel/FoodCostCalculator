@@ -31,6 +31,7 @@
 | T2-8 | 비동기/스케줄러 Naver refetch — viewByCategory 블로킹 제거 + @Async 트리거 + @Scheduled 1h (107 테스트) | ✅ |
 | T1-4 | 시크릿 외부화 정책 강화 — 운영 프로파일 + ProductionSecretsValidator + 운영 가이드 (119 테스트) | ✅ |
 | T3-19 | 가격 이력 — Flyway V4 + `ingredient_price_history` + 변동 시 적재 + admin UI (123 테스트) | ✅ |
+| T2-12 | Optimistic locking — Recipe `@Version` + Flyway V5 + 409 충돌 페이지 (126 테스트) | ✅ |
 | **다음** | **(보류) T2-13 Actuator + 모니터링 — 배포 직전 일괄 처리** | ⏸ |
 
 ---
@@ -339,6 +340,51 @@ EC2 비공개 베타용 준비 단계. 실제 EC2 배포는 보류 (사용자가
   - 5xx 영속 실패 → 3회 호출 후 Recover 빈 리스트
   - blank 키워드 즉시 빈 리스트 (네트워크 호출 X)
 - ✅ **전체 59 테스트 29초 통과**
+
+---
+
+# T2-12: Optimistic Locking (@Version) — 완료 (2026-05-25)
+
+`improvements.md` T2-12 해결.
+
+## 문제 정리
+- 사용자 A와 B(또는 같은 사용자 두 탭)가 같은 레시피를 동시에 편집 → 나중에 저장한 쪽이 먼저 저장 덮어씀 (lost update)
+- 사용자 데이터 손실 + "분명 저장했는데 사라졌다" 신뢰 손상
+
+## 해결 — @Version optimistic locking
+
+### 데이터
+- **`V5__recipe_version.sql`**: `recipes.version BIGINT NOT NULL DEFAULT 0`. 기존 row는 0으로 시작
+- **`Recipe.version`** `@Version` 필드 — Hibernate가 UPDATE 시 `WHERE id=? AND version=?` 조건 추가, 매번 +1
+
+### 충돌 처리 흐름
+1. 두 트랜잭션이 같은 version(예: v=0)으로 Recipe 로드
+2. 트랜잭션 A 먼저 commit → DB v=1
+3. 트랜잭션 B commit 시도 → `WHERE version=0` 매치 안 됨 → 0 rows updated
+4. Hibernate `OptimisticLockException` → Spring data 변환 → `ObjectOptimisticLockingFailureException`
+5. `GlobalExceptionHandler.handleOptimisticLockingFailure` → 409 Conflict + `error/conflict.html` 렌더
+
+### UX (`error/conflict.html`)
+- 친화적 안내: "다른 곳에서 먼저 수정되었습니다"
+- **데이터 손실 방지 가이드**: 브라우저 뒤로가기 → 입력 내용 메모 → 수정 페이지 새로 → 최신 상태 확인 → 합치기 → 다시 저장
+- 홈/내 레시피 목록 버튼
+
+### 스코프 결정
+- **Recipe만 @Version** — 가장 충돌 빈도 높은 엔티티(사용자 본인 두 탭 편집)
+- **RecipeIngredient는 부여 X** — Recipe @Version cascade UPDATE로 보호 (RecipeService.update가 clearIngredients + 재추가 패턴)
+- **Ingredient는 부여 X** — admin만 카테고리 단일 필드 만지고 충돌 가능성 낮음
+- **Comment는 부여 X** — 수정 기능 없음(작성/삭제만), 충돌 시나리오 없음
+
+## 의도적 비포함 → 후속
+- **자동 머지**: 같은 필드 다르게 수정 시 사용자 의도 모호. 거부 후 사용자가 직접 합치는 게 안전
+- **현재 DB 상태를 충돌 페이지에 보여주기**: 추가 정보 + 폼 데이터 보존이 더 복잡. 첫 안전망은 단순 안내 + 뒤로가기 가이드
+- **Ingredient/Comment @Version**: 위 이유로 의도적 비포함
+
+## 테스트 (총 126, 이전 T3-19 123 → +3)
+- `RecipeRepositoryTest` +3:
+  - 신규 persist 시 `version=0` 초기화 검증
+  - 수정 후 flush 시 `version +1` 증가 검증
+  - **동시 수정 시뮬레이션** — stale 복사본(detach) + fresh 영속(수정+flush 후 v=1) → stale의 `saveAndFlush` 시 `ObjectOptimisticLockingFailureException` 검증 (Spring repository 거쳐 변환된 예외)
 
 ---
 
@@ -719,7 +765,7 @@ EC2 비공개 베타용 준비 단계. 실제 EC2 배포는 보류 (사용자가
 ## 이후 후보 (improvements.md 참조)
 
 - T2-10 캐싱 레이어 (Caffeine → Redis)
-- T2-12 Optimistic locking (`@Version`)
+- T3-20 REST API + OpenAPI (수익화 단계 4 데이터 라이선싱 선행)
 - T3-15 후속 — 즐겨찾기 / 팔로우 / 작성자 프로필
 - (보류) EC2 실제 배포 + 배포 직전 T2-13 Actuator
 - (보류) T1-4 외부 저장소 실제 통합 — AWS SM / Vault (인스턴스 ≥ 2 또는 시크릿 ≥ 10 시점)

@@ -93,6 +93,10 @@ web/error/        GlobalExceptionHandler
 - 본인 분기는 템플릿에서 `${recipe.user.username == #authentication.name}`.
 - 위반 시 `AccessDeniedException` → 커스텀 403.
 
+## 동시 편집 보호 (T2-12)
+- `Recipe.@Version` — 두 사용자(또는 같은 사용자 두 탭)가 같은 레시피 동시 수정 시 두 번째 save가 `ObjectOptimisticLockingFailureException` → `GlobalExceptionHandler` → 409 + `error/conflict.html` (데이터 손실 방지 가이드).
+- RecipeIngredient/Ingredient/Comment는 @Version 미부여 — Recipe cascade 또는 충돌 시나리오 약함.
+
 ## 원가 계산 (`RecipeCostCalculator`)
 - `RecipeIngredient.selectedIngredient != null` → 그 제품 단가만 사용 (정책 무시, alias 풀이도 X).
 - null → `CategoryAliasService.resolve(categoryName)` 후 `IngredientRepository.findByCategoryAndUnit(resolved, unit)` 후보 → `PricingPolicy` (LOWEST/AVERAGE/HIGHEST)로 단가 결정.
@@ -164,4 +168,4 @@ web/error/        GlobalExceptionHandler
 
 `@ControllerAdvice`로 통합. `IllegalArgumentException`(WARN), `AccessDeniedException`(403), `IllegalStateException`(ERROR), `MethodArgumentNotValidException`(@Valid), `NoResourceFoundException`(404), 기타 `Exception`(500, ERROR).
 
-에러 페이지: `templates/error/{403,404,500,error}.html`. `server.error.include-message: never` (운영 안전성).
+에러 페이지: `templates/error/{403,404,500,error,conflict}.html`. `server.error.include-message: never` (운영 안전성). `ObjectOptimisticLockingFailureException` → 409 + `conflict.html` (T2-12).
