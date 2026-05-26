@@ -15,6 +15,7 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.OrderBy;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
@@ -65,6 +66,14 @@ public class Recipe {
 
     @UpdateTimestamp
     private LocalDateTime updatedAt;
+
+    /**
+     * T2-12: Optimistic locking. Hibernate가 UPDATE 시 version 일치 확인 후 +1.
+     * 동시 편집 충돌 시 두 번째 save가 {@code ObjectOptimisticLockingFailureException} 발생.
+     */
+    @Version
+    @Column(nullable = false)
+    private Long version;
 
     @Builder
     private Recipe(User user, String name, int servings, String imageUrl) {

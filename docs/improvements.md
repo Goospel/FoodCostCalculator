@@ -192,9 +192,9 @@
 - [x] T2-11. N+1 점검 (전체 컬렉션 경로) — 해결일: 2026-05-25 (부분 해결)
   - 해결 PR/커밋: feat: T2-11 N+1 점검 후속 (two-step 쿼리 + findMine 강제 초기화 제거)
   - 비고: **(1) two-step 쿼리 패턴** — T2-7에서 도입한 `Page<Recipe>` 직접 반환은 ToMany(`ingredients`) + Pageable 조합으로 Hibernate "in-memory paging" 경고 유발. RecipeRepository를 ID-only `Page<Long>` 쿼리 3개 + IN 절 + EntityGraph + ORDER BY 보존 entity fetch 2개로 분리. RecipeService에 `assemblePage` 헬퍼로 세 페이징 메서드(findRecent/searchByName/findMyRecipes)가 공유. **(2) `findMine`의 `.getIngredients().size()` 강제 초기화 제거** — `findWithUserAndIngredientsById` EntityGraph 메서드로 명시화. **(3) `RecipeRepositoryTest` 5 → 8** — ID-only Page 쿼리 카운트(≤2), IN 절+EntityGraph 카운트(≤2), `findWithUserAndIngredientsById`(≤3) 회귀 검증. TS-3의 잔존 위험 해소(troubleshooting.md TS-3 갱신). **미해결**: DataSource Proxy 같은 개발 환경 자동 감지 도구는 별도 PR로 분리 (테스트 카운트 검증으로 회귀는 잡힘). 카드 뷰의 `${#lists.size(r.ingredients)}` 호출을 `RecipeCardView` projection DTO로 가볍게 만드는 건 추후 항목.
-- [ ] T2-12. Optimistic locking (@Version) — 해결일: -
-  - 해결 PR/커밋: -
-  - 비고: -
+- [x] T2-12. Optimistic locking (@Version) — 해결일: 2026-05-25
+  - 해결 PR/커밋: feat: T2-12 Recipe @Version optimistic locking + 409 충돌 페이지
+  - 비고: **(1)** Flyway `V5__recipe_version.sql` — `recipes.version BIGINT NOT NULL DEFAULT 0`. **(2)** `Recipe.version` `@Version` 필드 — Hibernate가 UPDATE 시 `WHERE id=? AND version=?` 조건 + 자동 +1. **(3)** 충돌 흐름: 두 트랜잭션 같은 v=0 로드 → A commit (v=1) → B commit 시 row 매치 X → Hibernate OptimisticLockException → Spring 변환 ObjectOptimisticLockingFailureException → `GlobalExceptionHandler.handleOptimisticLockingFailure` → 409 + `error/conflict.html`. **(4)** UX: 친화적 안내 ("다른 곳에서 먼저 수정") + 데이터 손실 방지 가이드(브라우저 뒤로가기 → 메모 → 최신 상태 새로 → 합치기). **(5)** 스코프: Recipe만 @Version — 가장 충돌 빈도 높음. RecipeIngredient는 cascade UPDATE로 보호, Ingredient/Comment는 충돌 시나리오 약해 의도적 비포함. **테스트**: RecipeRepositoryTest +3 (version=0 초기화 / +1 증가 / stale detach + fresh save → 충돌 검증, saveAndFlush로 Spring 변환 거침) = **총 126(이전 123 → +3)**. **의도적 비포함**: 자동 머지(사용자 의도 모호), 현재 DB 상태를 충돌 페이지에 보여주기(복잡도 ↑), Ingredient/Comment @Version.
 - [ ] T2-13. Spring Boot Actuator + 모니터링 — 해결일: -
   - 해결 PR/커밋: -
   - 비고: -

@@ -13,8 +13,11 @@ import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jpa.test.autoconfigure.TestEntityManager;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
+
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.PersistenceUnit;
@@ -272,5 +275,60 @@ class RecipeRepositoryTest {
         // EntityGraph 적용
         assertThat(fetched).allMatch(r -> r.getUser().getUsername().equals("alice"));
         assertThat(fetched).allMatch(r -> !r.getIngredients().isEmpty());
+    }
+
+    // ============================================================
+    // T2-12: Optimistic Locking (@Version)
+    // ============================================================
+
+    @Test
+    @DisplayName("@Version: 신규 persist 시 version=0으로 초기화")
+    void newRecipeStartsWithVersionZero() {
+        User user = persistUser("alice");
+        Recipe recipe = persistRecipe(user, "쿠키", "밀가루");
+
+        assertThat(recipe.getVersion()).isEqualTo(0L);
+    }
+
+    @Test
+    @DisplayName("@Version: 수정 후 flush 시 version +1 증가")
+    void versionIncrementsOnUpdate() {
+        User user = persistUser("alice");
+        Recipe recipe = persistRecipe(user, "쿠키", "밀가루");
+        Long id = recipe.getId();
+        em.clear();
+
+        Recipe loaded = em.find(Recipe.class, id);
+        assertThat(loaded.getVersion()).isEqualTo(0L);
+        loaded.update("쿠키 v2", 3);
+        em.flush();
+
+        assertThat(loaded.getVersion()).isEqualTo(1L);
+    }
+
+    @Test
+    @DisplayName("@Version: 두 인스턴스가 같은 row를 따로 수정 → 두 번째 save가 OptimisticLockingFailureException")
+    void optimisticLockingDetectsConflict() {
+        // given: alice가 쿠키 레시피 보유 (v=0)
+        User user = persistUser("alice");
+        Recipe recipe = persistRecipe(user, "쿠키", "밀가루");
+        Long id = recipe.getId();
+        em.clear();
+
+        // session A: stale 복사본 로드 (v=0) → detach
+        Recipe stale = em.find(Recipe.class, id);
+        em.detach(stale);
+
+        // session B: 영속 상태로 로드 (v=0) → 수정 → flush → DB v=1
+        Recipe fresh = em.find(Recipe.class, id);
+        fresh.update("쿠키 v2", 3);
+        em.flush();
+        em.clear();
+
+        // session A의 stale을 saveAndFlush 시도 → Spring이 OptimisticLockException을
+        // ObjectOptimisticLockingFailureException으로 변환 (production 흐름과 동일)
+        stale.update("쿠키 v3", 4);
+        assertThatThrownBy(() -> recipeRepository.saveAndFlush(stale))
+                .isInstanceOf(ObjectOptimisticLockingFailureException.class);
     }
 }

@@ -3,6 +3,7 @@ package com.goosepl.coastCalculator.web.error;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.ControllerAdvice;
@@ -48,6 +49,23 @@ public class GlobalExceptionHandler {
     public String handleIllegalState(IllegalStateException e, HttpServletRequest req) {
         log.error("[500] illegal state: path={}", req.getRequestURI(), e);
         return "error/500";
+    }
+
+    /**
+     * T2-12: Optimistic locking 충돌 — 두 사용자(또는 같은 사용자 두 탭)가 같은 레시피를
+     * 동시에 수정한 경우. 사용자에게 친화적 안내 + 새로고침 권유.
+     *
+     * 409 Conflict가 의미적으로 정확하지만, 사용자는 폼 제출 후 결과를 보는 흐름이라
+     * 별도 에러 페이지(error/conflict.html)로 안내. 데이터 손실 방지를 위해 폼에서
+     * 입력한 내용은 사용자 브라우저 뒤로가기로 복구 가능하다는 안내 포함.
+     */
+    @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public String handleOptimisticLockingFailure(ObjectOptimisticLockingFailureException e,
+                                                  HttpServletRequest req) {
+        log.warn("[409] optimistic locking conflict: path={}, entity={}, id={}",
+                req.getRequestURI(), e.getPersistentClassName(), e.getIdentifier());
+        return "error/conflict";
     }
 
     @ExceptionHandler(Exception.class)
