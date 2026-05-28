@@ -2,6 +2,9 @@ package com.goosepl.coastCalculator.domain.category;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -39,6 +42,13 @@ public class CategoryAliasService {
      *   2) input이 category_aliases.alias에 있으면 → canonical.name
      *   3) 둘 다 없으면 → input (사용자 자유 입력 보존)
      */
+    /**
+     * T2-10: 원가 계산 행마다 호출되는 최핫패스. Caffeine 캐시.
+     * key는 input 그대로. condition으로 null/blank를 사전 차단 — Caffeine은 null key 거부(IllegalArgumentException).
+     * 무효화: {@link #add}, {@link #delete} 시 allEntries (특정 key만 evict하려면 input 표준화가 선행되어야 함).
+     */
+    @Cacheable(cacheNames = "categoryAliasMap", key = "#input",
+            condition = "#input != null and !#input.isBlank()")
     @Transactional(readOnly = true)
     public String resolve(String input) {
         if (input == null) {
@@ -68,7 +78,13 @@ public class CategoryAliasService {
 
     /**
      * alias 등록. 위 5가지 검증 통과 후 저장.
+     * T2-10: alias 추가는 resolve 결과를 바꾸므로 categoryAliasMap 전체 무효화.
+     * categoryNames도 무효화 — resolve가 categories.name 우선이라 의존성 있음(보수적).
      */
+    @Caching(evict = {
+            @CacheEvict(cacheNames = "categoryAliasMap", allEntries = true),
+            @CacheEvict(cacheNames = "categoryNames", allEntries = true)
+    })
     @Transactional
     public CategoryAlias add(String aliasName, String canonicalName) {
         if (aliasName == null || aliasName.isBlank()) {
@@ -100,6 +116,7 @@ public class CategoryAliasService {
         return saved;
     }
 
+    @CacheEvict(cacheNames = "categoryAliasMap", allEntries = true)
     @Transactional
     public void delete(Long id) {
         CategoryAlias alias = aliasRepository.findById(id)

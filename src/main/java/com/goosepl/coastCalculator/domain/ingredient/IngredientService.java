@@ -7,6 +7,9 @@ import com.goosepl.coastCalculator.external.naver.dto.NaverProduct;
 import com.goosepl.coastCalculator.external.naver.parser.UnitParser;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -46,6 +49,11 @@ public class IngredientService {
         this.priceHistoryRepository = priceHistoryRepository;
     }
 
+    /**
+     * T2-10: Naver 응답이 신규 ingredient 추가 / 가격 갱신을 일으키므로 ingredientGroupsVisible 캐시 무효화.
+     * keyword가 blank여서 실제 변경 0인 경우도 evict 호출되지만 비용 무시 가능.
+     */
+    @CacheEvict(cacheNames = "ingredientGroupsVisible", allEntries = true)
     @Transactional
     public int fetchAndUpsert(String keyword) {
         if (keyword == null || keyword.isBlank()) {
@@ -137,6 +145,13 @@ public class IngredientService {
         return rows.stream().anyMatch(r -> r.getFetchedAt().isBefore(threshold));
     }
 
+    /**
+     * T2-10: recipe 폼 GET 4곳에서 호출되는 핫패스. Caffeine 캐시.
+     * 인자 없음 → 단일 키. 반환 List는 호출처(RecipeController.loadIngredientGroups)에서 groupingBy로
+     * 새 컬렉션 만들고 끝 — 캐시 인스턴스 변형 위험 없음.
+     * 무효화: {@link #updateCategory}, {@link #fetchAndUpsert}, {@link #delete} 시.
+     */
+    @Cacheable("ingredientGroupsVisible")
     @Transactional(readOnly = true)
     public List<Ingredient> findAllVisible() {
         return ingredientRepository.findByCategoryIsNotNullOrderByCategoryAscPricePerGramAsc();
@@ -153,6 +168,10 @@ public class IngredientService {
                 .orElseThrow(() -> new IllegalArgumentException("재료를 찾을 수 없습니다: id=" + id));
     }
 
+    /**
+     * T2-10: 카테고리 변경은 findAllVisible(category != null 필터)/categoryNames(ensureExists 통해) 모두 영향.
+     */
+    @CacheEvict(cacheNames = "ingredientGroupsVisible", allEntries = true)
     @Transactional
     public void updateCategory(Long id, String category) {
         Ingredient ingredient = ingredientRepository.findById(id)
@@ -165,6 +184,10 @@ public class IngredientService {
         }
     }
 
+    /**
+     * T2-10: ingredient 삭제도 findAllVisible 결과 변경.
+     */
+    @CacheEvict(cacheNames = "ingredientGroupsVisible", allEntries = true)
     @Transactional
     public void delete(Long id) {
         if (!ingredientRepository.existsById(id)) {

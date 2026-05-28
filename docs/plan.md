@@ -32,6 +32,7 @@
 | T1-4 | 시크릿 외부화 정책 강화 — 운영 프로파일 + ProductionSecretsValidator + 운영 가이드 (119 테스트) | ✅ |
 | T3-19 | 가격 이력 — Flyway V4 + `ingredient_price_history` + 변동 시 적재 + admin UI (123 테스트) | ✅ |
 | T2-12 | Optimistic locking — Recipe `@Version` + Flyway V5 + 409 충돌 페이지 (126 테스트) | ✅ |
+| T2-10 | Caffeine 캐싱 — categoryNames / categoryAliasMap / ingredientGroupsVisible + @CacheEvict (134 테스트) | ✅ |
 | **다음** | **(보류) T2-13 Actuator + 모니터링 — 배포 직전 일괄 처리** | ⏸ |
 
 ---
@@ -756,17 +757,59 @@ EC2 비공개 베타용 준비 단계. 실제 EC2 배포는 보류 (사용자가
 
 ---
 
+# T2-10: Caffeine 캐싱 — 완료 (2026-05-28)
+
+`improvements.md` T2-10 해결. Tier 2의 마지막 미해결 항목(T2-13 배포 직전 보류 제외) — 단계 1 AdSense 진입 전 부하 안정성 확보.
+
+## 정책 결정
+- **Caffeine 단독**: 단일 EC2 인스턴스 가정. Redis 전환은 멀티 인스턴스(≥ 2) 시점으로 보류 — `@Cacheable` 인터페이스 그대로라 type만 바꾸면 됨.
+- **읽기 핫패스 3개만 캐싱**: 페이징 메서드(`findRecent`/`searchByName`)는 page/size/q 가변성 ↑ → 캐시 히트율 낮음 + write-through 무효화 비용(`RecipeService.create/update/delete` 마다 allEntries) > 이득. `viewByCategory`는 T2-8 DB 캐시(stale 허용) + async refetch로 충분.
+- **30분 통일 TTL**: per-cache 분리는 `CaffeineCacheManager` + 캐시별 빌더 등록이 필요한 과대투자.
+
+## 변경
+
+### 의존성 / 설정
+- **`build.gradle`** — `spring-boot-starter-cache` + `com.github.ben-manes.caffeine:caffeine`. TS-1 패턴 — Spring Boot 4 autoconfigure 모듈 분리 대응.
+- **`application.yaml`** — `spring.cache.type=caffeine`, `cache-names: [categoryNames, categoryAliasMap, ingredientGroupsVisible]`, `spring.cache.caffeine.spec: maximumSize=2000,expireAfterWrite=30m`.
+- **`application-test.yaml`** — `spring.cache.type=none` (기존 테스트 격리, T2-8 `scheduled-refresh-enabled=false` 패턴).
+
+### 코드
+- **`config/CacheConfig`** 신규 (`@EnableCaching`).
+- **`CategoryService.findAllNames`** — `@Cacheable("categoryNames")`. `ensureExists` — `@CacheEvict(allEntries=true)`.
+- **`CategoryAliasService.resolve`** — `@Cacheable("categoryAliasMap", key="#input", condition="#input != null and !#input.isBlank()")`. **condition 사용 이유**: Caffeine은 null key 거부 → `unless`로는 lookup 단계의 null 전달을 못 막음 ([TS-14](troubleshooting.md) 참조). `add`/`delete` — `@CacheEvict(["categoryAliasMap","categoryNames"], allEntries=true)`.
+- **`IngredientService.findAllVisible`** — `@Cacheable("ingredientGroupsVisible")`. `updateCategory`/`fetchAndUpsert`/`delete` — `@CacheEvict(allEntries=true)`.
+
+## 의도적 비포함 (후속)
+- **페이징 메서드 캐싱**: 위 결정 — 가변성 + 무효화 비용.
+- **`viewByCategory` 추가 캐싱**: T2-8 패턴으로 충분.
+- **per-cache TTL 분리**: 30분 통일.
+- **Redis 전환**: 인스턴스 ≥ 2 시점.
+- **캐시 통계/메트릭** (`Caffeine.recordStats()` + actuator endpoint): T2-13(Actuator) 도입 시 같이.
+- **per-key evict**: input 표준화(trim/lowercase) 선행 필요 — 현재는 보수적 allEntries.
+
+## 테스트 (총 134, 이전 T2-12 126 → +8)
+- `CacheBehaviorTest` 신규 8 (`@SpringBootTest` + properties override + `@MockitoBean` repository):
+  - CacheManager 스모크 1 — CaffeineCacheManager 빈 등록 + 세 캐시 이름
+  - CategoryNamesCache 2 — 캐시 히트 / ensureExists 후 무효화
+  - CategoryAliasCache 3 — 캐시 히트 / add 후 무효화 / null/blank는 condition으로 캐시 자체 skip
+  - IngredientVisibleCache 2 — 캐시 히트 / updateCategory 후 무효화
+- 기존 126 테스트 영향 0 — `application-test.yaml`의 `cache.type=none`으로 NoOp.
+
+---
+
 # 다음 단계
 
 ## (보류) T2-13 Actuator + 모니터링 — 배포 직전 일괄 처리
 
-사용자 결정 (2026-05-23): Actuator는 배포 직전에 도입. 지금 도입해도 외부 Prometheus/Grafana가 없으면 가시성 0 그대로라 효용이 약함.
+사용자 결정 (2026-05-23): Actuator는 배포 직전에 도입. 지금 도입해도 외부 Prometheus/Grafana가 없으면 가시성 0 그대로라 효용이 약함. Caffeine 캐시 통계(`recordStats()` + endpoint)도 같이 처리.
 
 ## 이후 후보 (improvements.md 참조)
 
-- T2-10 캐싱 레이어 (Caffeine → Redis)
 - T3-20 REST API + OpenAPI (수익화 단계 4 데이터 라이선싱 선행)
 - T3-15 후속 — 즐겨찾기 / 팔로우 / 작성자 프로필
+- T3-14 비번 재설정 / 이메일 인증 / 소셜 로그인
+- T3-16 후속 — 조리 스텝 / 태그 / 갤러리
+- T3-21 i18n + 접근성
 - (보류) EC2 실제 배포 + 배포 직전 T2-13 Actuator
 - (보류) T1-4 외부 저장소 실제 통합 — AWS SM / Vault (인스턴스 ≥ 2 또는 시크릿 ≥ 10 시점)
 
