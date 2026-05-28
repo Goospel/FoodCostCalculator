@@ -2,6 +2,8 @@ package com.goosepl.coastCalculator.domain.category;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,6 +28,11 @@ public class CategoryService {
 
     private final CategoryRepository categoryRepository;
 
+    /**
+     * T2-10: datalist 렌더링 시 매번 호출되는 핫패스. Caffeine 캐시.
+     * 무효화: {@link #ensureExists(String)} 신규 등록 시 + alias add/delete (CategoryAliasService).
+     */
+    @Cacheable("categoryNames")
     @Transactional(readOnly = true)
     public List<String> findAllNames() {
         return categoryRepository.findAllByOrderByNameAsc().stream()
@@ -39,6 +46,11 @@ public class CategoryService {
      * INSERT 시도해도 한쪽만 성공하고 다른쪽은 DataIntegrityViolation. 호출자(IngredientService.updateCategory)는
      * 별도 트랜잭션 내라 자체 재시도/무시는 일단 안 함 (드물고 admin만 호출).
      */
+    /**
+     * T2-10: 신규 등록 시 categoryNames 캐시 무효화.
+     * 멱등이라 이미 존재할 때도 evict가 호출되지만 비용 무시 가능 (admin 호출 빈도 낮음).
+     */
+    @CacheEvict(cacheNames = "categoryNames", allEntries = true)
     @Transactional
     public void ensureExists(String name) {
         if (name == null || name.isBlank()) {

@@ -604,3 +604,50 @@ git push origin --delete feat/<old-branch>
 - 자동화 도구가 머지 상태를 항상 인지하지는 못함. 푸시 직전에도 `gh pr view <N> --json state` 같은 적극적 검증 필요
 - 사고 자체는 cherry-pick 한 번이면 수습 가능. 문제는 **사용자가 발견하기 전까지 main에 누락된 채로 시간이 흐른다**는 것 — 자동화는 빠른 만큼 빠르게 틀린다
 - `mergeStateStatus: UNSTABLE` 자체는 머지 차단 아님 — CI 진행 중일 때 잠시 나오는 상태. `mergeable: MERGEABLE`이면 안전
+
+---
+
+## TS-14. `@Cacheable` + Caffeine — key가 null이면 `IllegalArgumentException` (unless로는 못 막음)
+
+**날짜**: 2026-05-28 / 관련 작업: T2-10 Caffeine 캐싱
+
+### 증상
+`CategoryAliasService.resolve(null)` 호출 시:
+```
+java.lang.IllegalArgumentException
+  at com.github.benmanes.caffeine.cache.Caffeine.requireNonNull(...)
+  at org.springframework.cache.caffeine.CaffeineCache.lookup(...)
+```
+
+원본 메서드 코드는 명시적으로 `if (input == null) return null;`로 시작하지만, AOP 캐시 프록시가 **메서드 본문 실행 전** key를 평가하면서 null을 그대로 Caffeine에 넘김 → Caffeine이 거부.
+
+### 진단
+처음엔 `unless = "#input == null or #input.isBlank()"`로 막으려 했음. 안 됨.
+
+- `unless`: 메서드 **결과** 평가용 — 캐시에 *put*할지 여부 결정. 메서드 실행 후 발동.
+- 캐시 *lookup*은 메서드 실행 **전** 발생 → null key가 그때 이미 Caffeine에 들어감 → 즉시 예외.
+
+즉 `unless`는 "결과가 못 마음에 들면 캐시에 안 넣겠다" 용도이고, "처음부터 캐시 자체를 건너뛰겠다"는 의미가 아님.
+
+### 해결
+`condition` 사용. condition은 메서드 호출 전 평가되어 캐시 메커니즘(lookup + put) 전체를 skip.
+
+```java
+// 잘못된 방식 — null key가 Caffeine에 닿기 전에 막아야 함
+@Cacheable(cacheNames = "categoryAliasMap", key = "#input",
+        unless = "#input == null or #input.isBlank()")  // ❌
+
+// 올바른 방식 — null/blank면 캐시 자체를 건너뜀
+@Cacheable(cacheNames = "categoryAliasMap", key = "#input",
+        condition = "#input != null and !#input.isBlank()")  // ✅
+```
+
+이러면 null/blank 입력은 메서드 본문이 그대로 실행되어 null/blank 반환, 캐시 관여 없음.
+
+### 교훈
+- `@Cacheable` 어노테이션의 `condition` vs `unless` 의미 차이는 자주 헷갈리는 함정:
+  - `condition`: lookup/put 자체를 skip — **null key 가능성**, **무거운 SpEL 평가 회피** 같은 사전 조건
+  - `unless`: 결과 기반 — **null 결과는 캐시 X** 같은 사후 조건
+- Caffeine은 null key/value 모두 거부 (Guava 호환). null 가능성이 1%라도 있으면 condition으로 사전 차단
+- 메서드 본문의 null 가드는 캐시 프록시를 지나고 나서 동작 → 프록시 단의 가드와 본문 가드는 **다른 레이어**라는 인지 필요
+- 테스트 작성 시 null/blank 경계 케이스를 빨리 돌리면 이 함정 즉시 잡힘 (T2-10 PR에서 첫 테스트 run에서 발견)

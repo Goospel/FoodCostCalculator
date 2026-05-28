@@ -27,6 +27,9 @@ dependencies {
 	// Spring Boot 4 부터는 starter를 써야 자동설정이 동작 (autoconfigure 모듈 분리)
 	implementation 'org.springframework.boot:spring-boot-starter-flyway'
 	implementation 'org.flywaydb:flyway-mysql'
+	// T2-10: 캐싱 레이어. Spring Boot 4부터 autoconfigure 분리 — starter 필수(caffeine 단독 X). TS-1 패턴.
+	implementation 'org.springframework.boot:spring-boot-starter-cache'
+	implementation 'com.github.ben-manes.caffeine:caffeine'
 	// T2-9: 외부 호출(Naver API) 재시도. spring-retry는 Spring Boot BOM에서 관리 안 됨 → 버전 명시.
 	// AOP 어드바이스 기반이라 spring-aspects 필요 (Spring Boot BOM이 spring-aspects 버전은 관리).
 	implementation 'org.springframework.retry:spring-retry:2.0.12'

@@ -18,6 +18,10 @@ spring:
     open-in-view: false
   flyway:
     enabled: false               # 운영용 V1__init_schema.sql은 MySQL 전용 문법. 테스트에서는 비활성
+  # T2-10: 기존 테스트 격리 — 캐시 미동작 (NoOp). 캐시 동작 검증 테스트는 자체 @SpringBootTest에서
+  # spring.cache.type=caffeine을 명시 override (T2-8 scheduled-refresh-enabled=false 패턴과 동일).
+  cache:
+    type: none
 
 # Naver API는 테스트 동안 호출되지 않도록 Mock 모드 고정.
 naver:
